@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
-<link rel="stylesheet" href="css/app.css?v=10">
+<link rel="stylesheet" href="css/app.css?v=11">
 </head>
 <body>
 <div id="app">
@@ -17,6 +17,10 @@
       <h1>Hydrascout Placement</h1>
       <p>Find the most representative spots in a field to install Hydrascout soil &amp; temperature sensors.</p>
     </header>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button type="button" role="tab" id="tabPlace" data-tab="place" aria-selected="true">Probe placement</button>
+      <button type="button" role="tab" id="tabRoi" data-tab="roi" aria-selected="false">Return on investment</button>
+    </nav>
 
     <section class="step">
       <h2><b>1</b> Your irrigation blocks</h2>
@@ -25,6 +29,14 @@
         <input type="number" id="nBlocks" min="1" max="200" step="1" inputmode="numeric" placeholder="e.g. 4">
       </div>
       <p class="hint">A block is a part of the farm watered on its own (one valve or one sector). HSTI recommends one probe per block. Not sure? Leave it empty and the app suggests a number from the field size.</p>
+      <details class="blocks-box" id="blocksBox" open hidden>
+        <summary id="blocksSummary">Your blocks</summary>
+        <ul class="block-list" id="blockList"></ul>
+        <div class="row">
+          <label class="btn file">Import blocks<input type="file" id="blockFile" accept=".geojson,.json,.kml"></label>
+        </div>
+        <p class="hint">Name each block, then press <b>Draw borders</b> and tap its corners on the map. Find the farm in step 2 first if the map is not on it. Each block gets one probe, away from its borders; a block with clearly different parts gets an optional second one. Drawn blocks also set the field, so step 3 becomes optional.</p>
+      </details>
       <p class="need" id="needLine" hidden></p>
     </section>
 
@@ -49,7 +61,7 @@
     </section>
 
     <section class="step">
-      <h2><b>3</b> Outline the field and its blocks</h2>
+      <h2><b>3</b> Outline the field</h2>
       <div class="row">
         <button id="drawBtn" type="button">Draw boundary</button>
         <button id="undoBtn" type="button" hidden>Undo point</button>
@@ -58,17 +70,7 @@
       </div>
       <input type="text" id="fieldName" placeholder="Field name (optional, used in the report)" autocomplete="off">
       <p class="field-info" id="fieldInfo">No field yet.</p>
-      <p class="hint">Tap the map to place corners, then Finish. You can also import a GeoJSON or KML boundary (e.g. from your farm software or Google Earth).</p>
-      <h3 class="sub-h">Irrigation blocks</h3>
-      <div class="row">
-        <button type="button" id="blockBtn">Draw blocks</button>
-        <button type="button" id="blockUndo" hidden>Undo point</button>
-        <button type="button" id="blockFinish" hidden>Finish block</button>
-        <label class="btn file">Import blocks<input type="file" id="blockFile" accept=".geojson,.json,.kml"></label>
-      </div>
-      <p class="field-info" id="blockCount" hidden></p>
-      <ul class="block-list" id="blockList" hidden></ul>
-      <p class="hint">Draw each block one after the other: finish a block and the next one starts, until you press Done. Each block gets one probe, away from its borders, and a block with clearly different parts gets an optional second one. Without a field outline, the blocks also set the field.</p>
+      <p class="hint">Tap the map to place corners, then Finish. You can also import a GeoJSON or KML boundary (e.g. from your farm software or Google Earth). Optional when the blocks are drawn in step 1: the outline around them is used.</p>
       <div class="opt">
         <label for="soilMap">Soil map</label>
         <select id="soilMap">
@@ -171,11 +173,12 @@
         <button type="button" id="dlCsv">CSV</button>
         <button type="button" id="dlGeo">GeoJSON</button>
       </div>
+      <button type="button" id="toRoi">See the return on investment</button>
       <ul class="notes" id="notes"></ul>
     </section>
 
     <section class="step" id="roiStep">
-      <h2><b>8</b> Return on investment</h2>
+      <h2>Return on investment</h2>
       <p class="hint">A Hydrascout probe typically saves 10–30% of irrigation water, and the pumping hours, electricity or diesel that go with it. Ask the farmer for their own figures: the closer they are, the more convincing the result.</p>
       <h3 class="sub-h">Water</h3>
       <div class="subopts">
@@ -207,6 +210,7 @@
         <label for="roiHi">High</label><span><input type="number" id="roiHi" min="0" max="80" step="1" value="30"><span class="unit">%</span></span>
       </div>
       <div id="roiOut" class="roi-out"><p class="hint">Enter the water used per year to see the savings.</p></div>
+      <div class="row"><button type="button" class="primary" id="dlReportRoi">Open placement report</button></div>
     </section>
 
     <footer>Data: elevation Copernicus DEM GLO-90 via Open-Meteo · soil ISRIC SoilGrids 2.0 · NDVI Copernicus Sentinel-2 via Earth Search (AWS) · address search IGN Géoplateforme (Base Adresse Nationale) and OpenStreetMap Nominatim · imagery Esri. Recommendations are a starting point: check each spot on the ground before installing.</footer>
@@ -220,11 +224,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.2/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
-<script src="js/util.js?v=10"></script>
-<script src="js/sources.js?v=10"></script>
-<script src="js/analysis.js?v=10"></script>
-<script src="js/roi.js?v=10"></script>
-<script src="js/report.js?v=10"></script>
-<script src="js/app.js?v=10"></script>
+<script src="js/util.js?v=11"></script>
+<script src="js/sources.js?v=11"></script>
+<script src="js/analysis.js?v=11"></script>
+<script src="js/roi.js?v=11"></script>
+<script src="js/report.js?v=11"></script>
+<script src="js/app.js?v=11"></script>
 </body>
 </html>
