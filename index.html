@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
-<link rel="stylesheet" href="css/app.css?v=9">
+<link rel="stylesheet" href="css/app.css?v=10">
 </head>
 <body>
 <div id="app">
@@ -49,7 +49,7 @@
     </section>
 
     <section class="step">
-      <h2><b>3</b> Outline the field</h2>
+      <h2><b>3</b> Outline the field and its blocks</h2>
       <div class="row">
         <button id="drawBtn" type="button">Draw boundary</button>
         <button id="undoBtn" type="button" hidden>Undo point</button>
@@ -59,6 +59,16 @@
       <input type="text" id="fieldName" placeholder="Field name (optional, used in the report)" autocomplete="off">
       <p class="field-info" id="fieldInfo">No field yet.</p>
       <p class="hint">Tap the map to place corners, then Finish. You can also import a GeoJSON or KML boundary (e.g. from your farm software or Google Earth).</p>
+      <h3 class="sub-h">Irrigation blocks</h3>
+      <div class="row">
+        <button type="button" id="blockBtn">Draw blocks</button>
+        <button type="button" id="blockUndo" hidden>Undo point</button>
+        <button type="button" id="blockFinish" hidden>Finish block</button>
+        <label class="btn file">Import blocks<input type="file" id="blockFile" accept=".geojson,.json,.kml"></label>
+      </div>
+      <p class="field-info" id="blockCount" hidden></p>
+      <ul class="block-list" id="blockList" hidden></ul>
+      <p class="hint">Draw each block one after the other: finish a block and the next one starts, until you press Done. Each block gets one probe, away from its borders, and a block with clearly different parts gets an optional second one. Without a field outline, the blocks also set the field.</p>
       <div class="opt">
         <label for="soilMap">Soil map</label>
         <select id="soilMap">
@@ -97,7 +107,7 @@
     </section>
 
     <section class="step">
-      <h2><b>5</b> Irrigation <span class="tag">optional</span></h2>
+      <h2><b>5</b> Irrigation equipment <span class="tag">optional</span></h2>
       <div class="opt">
         <label for="irrType">Irrigation equipment</label>
         <select id="irrType">
@@ -124,15 +134,6 @@
         <div class="full row" id="pivCentreRow"><button type="button" id="pivCentreBtn">Place pivot centre on map</button><span class="pivot-hint" id="pivCentreInfo">Not placed yet.</span></div>
       </div>
       <input type="text" id="irrNotes" placeholder="Other irrigation notes (optional)" autocomplete="off" hidden>
-      <h3 class="sub-h">Irrigation blocks</h3>
-      <div class="row">
-        <button type="button" id="blockBtn">Draw a block</button>
-        <button type="button" id="blockUndo" hidden>Undo point</button>
-        <button type="button" id="blockFinish" hidden>Finish block</button>
-        <label class="btn file">Import blocks<input type="file" id="blockFile" accept=".geojson,.json,.kml"></label>
-      </div>
-      <ul class="block-list" id="blockList" hidden></ul>
-      <p class="hint">HSTI rule: one probe per irrigation block (each part of the field watered on its own). Draw or import the blocks and step 6 puts one probe in each, away from the block borders. A block with clearly different parts gets an optional second probe.</p>
     </section>
 
     <section class="step">
@@ -184,10 +185,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.2/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
-<script src="js/util.js?v=9"></script>
-<script src="js/sources.js?v=9"></script>
-<script src="js/analysis.js?v=9"></script>
-<script src="js/report.js?v=9"></script>
-<script src="js/app.js?v=9"></script>
+<script src="js/util.js?v=10"></script>
+<script src="js/sources.js?v=10"></script>
+<script src="js/analysis.js?v=10"></script>
+<script src="js/report.js?v=10"></script>
+<script src="js/app.js?v=10"></script>
 </body>
 </html>

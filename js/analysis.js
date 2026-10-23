@@ -168,7 +168,7 @@ function computePlacement(inp) {
     for (const s of sensors) if (s.tier === 4) notes.push(`Block ${s.block} is too narrow to keep ${buffer} m from its borders, so its ${s.optional ? "optional " : ""}probe sits at its most central point (${fmt(edgeAt[s.i], 0)} m from the nearest border).`);
     blocks.forEach((b, bi) => { b.xy = rings[bi]; }); // outline in local metres, for border checks on moved pins
     const outside = lab.filter((l) => l < 0).length / pts.length;
-    if (outside > 0.05) notes.push(`${fmt(outside * ha, 1)} ha of the field (${fmt(outside * 100, 0)}%) is outside the drawn irrigation blocks and has no probe.`);
+    if (outside > 0.05 && !inp.fieldFromBlocks) notes.push(`${fmt(outside * ha, 1)} ha of the field (${fmt(outside * 100, 0)}%) is outside the drawn irrigation blocks and has no probe.`);
     k = sensors.length;
   } else {
     k = Math.min(pts.length, inp.request === "auto" ? autoCount(ha) : +inp.request);
