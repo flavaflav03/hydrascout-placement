@@ -146,6 +146,44 @@ $("searchForm").addEventListener("submit", async (e) => {
   else setSearchStatus(`No place found for "${q}". Try another spelling, a town name, or coordinates.`, true);
 });
 
+// ---------- Digital Matter device position ----------
+// The Device Manager API key stays on the HSTI Logger Overview server. This page sends the user to its
+// /locate page (behind its login), which looks the device up and sends them back here with the last
+// GPS fix in the URL hash: #device=<serial>&lat=…&lng=…&seen=… (or &error=notfound|nogps).
+const LOGGER_URL = ""; // e.g. "https://devices.hsti.fr"; when empty, the address is asked once and remembered
+const loggerUrl = () => (LOGGER_URL || store.get("hs.loggerUrl") || "").replace(/\/+$/, "");
+$("loggerCfg").hidden = !!loggerUrl();
+$("deviceForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const serial = $("devSerial").value.replace(/\s+/g, "");
+  if (!/^\d{4,15}$/.test(serial)) { setSearchStatus("Enter the device serial number (digits only), as shown in Device Manager.", true); return; }
+  if (!LOGGER_URL) {
+    const u = $("loggerUrl").value.trim() || store.get("hs.loggerUrl") || "";
+    if (!/^https?:\/\/[^\s/]+/.test(u)) { $("loggerCfg").hidden = false; $("loggerUrl").focus(); setSearchStatus("Enter the HSTI Logger Overview address first (ask your admin), then press Use its GPS again.", true); return; }
+    store.set("hs.loggerUrl", u.replace(/\/+$/, ""));
+  }
+  store.set("hs.devSerial", serial);
+  setSearchStatus("Opening HSTI Logger Overview…");
+  location.href = `${loggerUrl()}/locate?serial=${serial}`;
+});
+// Coming back from Logger Overview.
+function readDeviceHash() {
+  const h = new URLSearchParams(location.hash.slice(1)), serial = h.get("device");
+  if (!serial) return;
+  history.replaceState(null, "", location.pathname + location.search);
+  $("devSerial").value = serial;
+  const err = h.get("error");
+  if (err) {
+    setSearchStatus(err === "nogps" ? `Device ${serial} has no GPS position yet in Device Manager.` : err === "notfound" ? `Device ${serial} was not found in Device Manager. Check the serial.` : `Could not read device ${serial}: ${err}`, true);
+    return;
+  }
+  const lat = +h.get("lat"), lon = +h.get("lng");
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) { setSearchStatus(`Device ${serial}: the position received is not valid.`, true); return; }
+  const seen = h.get("seen"), when = seen && !Number.isNaN(Date.parse(seen)) ? new Date(seen).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : null;
+  goTo({ lat, lon, zoom: 17, label: `Device ${serial}` });
+  setSearchStatus(`Device ${serial}${h.get("product") ? ` (${h.get("product")})` : ""}: last GPS position ${lat.toFixed(6)}, ${lon.toFixed(6)}${when ? `, connected ${when}` : ""}. Draw the field around it.`);
+}
+
 // ---------- drawing ----------
 function drawbar(msg) { const d = $("drawbar"); d.hidden = !msg; d.textContent = msg || ""; }
 function renderDraft() {
@@ -470,4 +508,6 @@ $("dlGeo").onclick = () => S.result && exportGeoJson(S.result, exportCtx());
     irr.pivotCentre = si.pivotCentre || null;
   }
   updateIrrigation();
+  if (!$("devSerial").value) $("devSerial").value = store.get("hs.devSerial") || "";
+  readDeviceHash();
 })();
