@@ -49,9 +49,9 @@ function clearResult() { S.result = null; gridLayer.clearLayers(); sensorLayer.c
 function setField(latlngs, { fit = true, example = false } = {}) {
   S.field = latlngs; S.isExample = example; clearResult();
   fieldLayer.clearLayers();
+  hideTimeline(); S.scenes = [];
   if (S.ndvi && S.ndvi.source === "sentinel") clearNdvi("The field changed. Search satellite images again for the new boundary.");
-  else if (S.ndvi) showNdvi(S.ndvi);
-  S.scenes = []; $("sceneRow").hidden = true;
+  else if (S.ndvi) { S.ndvi.overlay = null; showNdvi(S.ndvi); }
   $("sceneBtn").disabled = !latlngs;
   if (!latlngs) { $("fieldInfo").textContent = "No field yet."; $("analyzeBtn").disabled = true; return; }
   const poly = L.polygon(latlngs, { color: "#ffffff", weight: 2.5, fill: false, dashArray: example ? "6 6" : null }).addTo(fieldLayer);
@@ -205,64 +205,122 @@ $("importFile").addEventListener("change", async (e) => {
 $("fieldName").addEventListener("input", (e) => store.set("hs.fieldName", e.target.value));
 
 // ---------- NDVI ----------
+const NDVI_SCALE = [0, 0.9]; // fixed colour scale for satellite dates, so the timeline compares like with like
 function showNdvi(nd) {
   ndviLayer.clearLayers();
-  const ov = S.field ? ndviOverlay(nd, S.field) : null;
+  if (!nd.overlay && S.field) nd.overlay = ndviOverlay(nd, S.field, nd.source === "sentinel" ? NDVI_SCALE : null);
+  const ov = nd.overlay;
   if (ov) L.imageOverlay(ov.url, ov.bounds, { opacity: 0.9, interactive: false }).addTo(ndviLayer);
   $("ndviMeta").hidden = false;
   $("ndviMeta").textContent = ov ? `${nd.label} · field NDVI ${fmt(ov.lo, 2)} to ${fmt(ov.hi, 2)}, average ${fmt(ov.mean, 2)}` : `${nd.label} · does not cover this field`;
+  const [c0, c1] = nd.source === "sentinel" ? NDVI_SCALE : ov ? [ov.lo, ov.hi] : [0, 1];
+  $("ndviLegend").hidden = !ov;
+  $("ndviLegend").innerHTML = `<div class="ramp" style="background:linear-gradient(90deg,${Array.from({ length: 11 }, (_, i) => ndviRamp(i / 10)).join(",")})"></div><div class="ends"><span>${fmt(c0, 2)}</span><span>NDVI${nd.source === "sentinel" ? " (same scale for every date)" : ""}</span><span>${fmt(c1, 2)}</span></div>`;
 }
 function setNdvi(nd) { S.ndvi = nd; $("ndviClear").hidden = false; showNdvi(nd); if (S.result) setNdviStatus("NDVI updated. Run “Find sensor spots” again to use it."); }
 function clearNdvi(msg) {
-  S.ndvi = null; ndviLayer.clearLayers(); $("ndviClear").hidden = true; $("ndviMeta").hidden = true;
+  S.ndvi = null; ndviLayer.clearLayers(); $("ndviClear").hidden = true; $("ndviMeta").hidden = true; $("ndviLegend").hidden = true;
   if (msg) setNdviStatus(msg);
 }
-$("ndviClear").addEventListener("click", () => { clearNdvi("NDVI removed. The analysis will use terrain and soil only."); $("sceneRow").hidden = true; });
+function hideTimeline() { TL.playing = false; TL.token++; $("tPlay").textContent = "Play"; $("sceneRow").hidden = true; }
+$("ndviClear").addEventListener("click", () => { hideTimeline(); clearNdvi("NDVI removed. The analysis will use terrain and soil only."); });
 
 $("ndviFile").addEventListener("change", async (e) => {
   const f = e.target.files[0]; e.target.value = ""; if (!f) return;
   try {
     setNdviStatus("Reading NDVI image…");
     const nd = await readNdviFile(f);
-    $("sceneRow").hidden = true; setNdviStatus(nd.bands > 1 ? "The file has several bands: band 1 is used as NDVI." : "");
+    hideTimeline(); setNdviStatus(nd.bands > 1 ? "The file has several bands: band 1 is used as NDVI." : "");
     setNdvi(nd);
   } catch (err) {
     setNdviStatus(`Could not read that NDVI image: ${err.message}. Export a single-band GeoTIFF in WGS84 (EPSG:4326), Web Mercator, UTM or Lambert-93.`, true);
   }
 });
 
-async function loadScene(sc) {
-  setNdviStatus(`Computing NDVI from the ${sc.date} image…`);
-  try { const nd = await Sentinel.ndvi(sc, S.field); setNdvi(nd); setNdviStatus(""); }
-  catch (err) { console.error(err); setNdviStatus(`Could not load the ${sc.date} image (${err.message}). Pick another date.`, true); }
+// Timeline of clear Sentinel-2 dates (oldest → newest). Each date's NDVI is computed once and kept.
+const TL = { idx: 0, playing: false, token: 0, debounce: null };
+async function sceneNdvi(sc) {
+  if (!sc.nd) { sc.nd = await Sentinel.ndvi(sc, S.field); sc.nd.overlay = ndviOverlay(sc.nd, S.field, NDVI_SCALE); sc.mean = sc.nd.overlay ? sc.nd.overlay.mean : null; }
+  return sc.nd;
 }
+function timelineLabel() {
+  const sc = S.scenes[TL.idx];
+  $("tDate").innerHTML = `${sc.date} · ${fmt(sc.veg * 100, 0)}% green cover${sc.mean != null ? ` · NDVI ${fmt(sc.mean, 2)}` : ""}${sc.best ? '<span class="tag">recommended</span>' : ""}`;
+}
+async function showScene(i) {
+  TL.idx = i; $("tRange").value = i; timelineLabel(); drawTimeline();
+  const sc = S.scenes[i], tok = ++TL.token;
+  if (!sc.nd) setNdviStatus(`Loading NDVI for ${sc.date}…`);
+  try { await sceneNdvi(sc); }
+  catch (err) { console.error(err); if (tok === TL.token) setNdviStatus(`Could not load the ${sc.date} image (${err.message}). Pick another date.`, true); return; }
+  if (tok !== TL.token) return; // a newer date was picked meanwhile
+  setNdvi(sc.nd); if (!S.result) setNdviStatus(""); timelineLabel(); drawTimeline();
+}
+function drawTimeline() {
+  const sv = $("tChart"), sc = S.scenes; if (!sc.length) return;
+  const W = 320, H = 110, l = 30, r = 8, t = 8, b = 20;
+  const t0 = Date.parse(sc[0].date), t1 = Date.parse(sc[sc.length - 1].date), span = t1 - t0 || 1;
+  const X = (d) => l + ((Date.parse(d) - t0) / span) * (W - l - r), Y = (v) => t + (1 - Math.max(0, Math.min(1, v))) * (H - t - b);
+  let g = [0, 0.5, 1].map((v) => `<line class="grid" x1="${l}" x2="${W - r}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${l - 4}" y="${Y(v) + 3}" text-anchor="end">${v.toFixed(1)}</text>`).join("");
+  const done = sc.filter((s) => s.mean != null);
+  if (done.length > 1) g += `<polyline class="line" points="${done.map((s) => `${X(s.date).toFixed(1)},${Y(s.mean).toFixed(1)}`).join(" ")}"/>`;
+  g += `<line class="cur" x1="${X(sc[TL.idx].date)}" x2="${X(sc[TL.idx].date)}" y1="${t}" y2="${H - b}"/>`;
+  g += sc.map((s, i) => s.mean != null
+    ? `<circle class="pt${i === TL.idx ? " sel" : ""}" data-i="${i}" cx="${X(s.date).toFixed(1)}" cy="${Y(s.mean).toFixed(1)}" r="${i === TL.idx ? 5 : 3.5}"><title>${s.date}: NDVI ${fmt(s.mean, 2)}</title></circle>`
+    : `<circle class="todo${i === TL.idx ? " sel" : ""}" data-i="${i}" cx="${X(s.date).toFixed(1)}" cy="${H - b}" r="${i === TL.idx ? 4.5 : 3}"><title>${s.date}: not loaded yet</title></circle>`).join("");
+  const month = (d) => new Date(d).toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+  g += `<text x="${l}" y="${H - 5}">${month(sc[0].date)}</text><text x="${W - r}" y="${H - 5}" text-anchor="end">${month(sc[sc.length - 1].date)}</text>`;
+  sv.innerHTML = g;
+}
+$("tChart").addEventListener("click", (e) => { const i = e.target.getAttribute && e.target.getAttribute("data-i"); if (i != null) { stopPlay(); showScene(+i); } });
+$("tRange").addEventListener("input", (e) => {
+  stopPlay(); TL.idx = +e.target.value; timelineLabel(); drawTimeline();
+  clearTimeout(TL.debounce); TL.debounce = setTimeout(() => showScene(TL.idx), 250);
+});
+$("tPrev").addEventListener("click", () => { stopPlay(); if (TL.idx > 0) showScene(TL.idx - 1); });
+$("tNext").addEventListener("click", () => { stopPlay(); if (TL.idx < S.scenes.length - 1) showScene(TL.idx + 1); });
+function stopPlay() { TL.playing = false; $("tPlay").textContent = "Play"; }
+$("tPlay").addEventListener("click", async () => {
+  if (TL.playing) return stopPlay();
+  TL.playing = true; $("tPlay").textContent = "Pause";
+  if (TL.idx >= S.scenes.length - 1) await showScene(0);
+  while (TL.playing && TL.idx < S.scenes.length - 1) { await sleep(1100); if (!TL.playing) break; await showScene(TL.idx + 1); }
+  stopPlay();
+});
+$("tAll").addEventListener("click", async () => {
+  const btn = $("tAll"); btn.disabled = true;
+  const todo = S.scenes.filter((s) => !s.nd); let n = 0;
+  const one = async (s) => { try { await sceneNdvi(s); } catch (err) { console.warn(err); } $("tHint").textContent = `Loading dates… ${++n}/${todo.length}`; drawTimeline(); };
+  for (let i = 0; i < todo.length; i += 2) await Promise.all(todo.slice(i, i + 2).map(one));
+  $("tHint").textContent = "The spots use the date shown."; timelineLabel(); btn.disabled = false;
+});
+
 $("sceneBtn").addEventListener("click", async () => {
   if (!S.field) return;
-  const btn = $("sceneBtn"); btn.disabled = true;
+  const btn = $("sceneBtn"); btn.disabled = true; hideTimeline();
   try {
     setNdviStatus("Searching Sentinel-2 images of the last 14 months…");
     const scenes = await Sentinel.search(S.field);
     if (!scenes.length) { setNdviStatus("No usable Sentinel-2 image found for this field. Upload an NDVI GeoTIFF instead.", true); return; }
     // Check the clouds over the field itself for the least cloudy scenes, a few at a time.
-    const cands = scenes.slice().sort((a, b) => a.cloud - b.cloud).slice(0, 14);
+    const cands = scenes.slice().sort((a, b) => a.cloud - b.cloud).slice(0, 30);
     let done = 0;
     const check = async (sc) => { try { Object.assign(sc, await Sentinel.checkScene(sc, S.field)); } catch (err) { sc.clear = null; console.warn(err); } setNdviStatus(`Checking clouds over the field… ${++done}/${cands.length}`); };
     for (let i = 0; i < cands.length; i += 4) await Promise.all(cands.slice(i, i + 4).map(check));
-    let clear = cands.filter((c) => c.clear >= 0.97);
-    if (!clear.length) clear = cands.filter((c) => c.clear >= 0.85);
+    const clear = cands.filter((c) => c.clear >= 0.9);
     if (!clear.length) { setNdviStatus("All recent images are cloudy over this field. Upload an NDVI GeoTIFF instead, or try again later.", true); return; }
-    // Prefer full crop cover; among those, the most recent image.
-    const maxVeg = Math.max(...clear.map((c) => c.veg));
-    const best = clear.filter((c) => c.veg >= maxVeg - 0.05).sort((a, b) => (a.date < b.date ? 1 : -1))[0];
-    S.scenes = clear.sort((a, b) => (a.date < b.date ? 1 : -1));
-    $("sceneSel").innerHTML = S.scenes.map((c, i) => `<option value="${i}">${c.date} · ${fmt(c.veg * 100, 0)}% green cover${c === best ? " · recommended" : ""}</option>`).join("");
-    $("sceneSel").value = S.scenes.indexOf(best); $("sceneRow").hidden = false;
-    await loadScene(best);
+    // Recommended date: fully clear, full crop cover, most recent.
+    const pool = clear.filter((c) => c.clear >= 0.97).length ? clear.filter((c) => c.clear >= 0.97) : clear;
+    const maxVeg = Math.max(...pool.map((c) => c.veg));
+    const best = pool.filter((c) => c.veg >= maxVeg - 0.05).sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+    best.best = true;
+    S.scenes = clear.sort((a, b) => (a.date < b.date ? -1 : 1));
+    $("tRange").max = S.scenes.length - 1; $("sceneRow").hidden = false; $("tHint").textContent = "The spots use the date shown.";
+    await showScene(S.scenes.indexOf(best));
   } catch (err) {
     console.error(err); setNdviStatus("Could not reach the Sentinel-2 catalogue. Check your connection and try again, or upload an NDVI GeoTIFF.", true);
   } finally { btn.disabled = false; }
 });
-$("sceneSel").addEventListener("change", (e) => loadScene(S.scenes[+e.target.value]));
 
 // ---------- irrigation ----------
 const irr = { pivotCentre: null };
