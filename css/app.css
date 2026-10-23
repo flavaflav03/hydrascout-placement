@@ -179,3 +179,12 @@ footer { font-size: 12px; color: var(--muted); margin-top: auto; }
 .block-label::before { display: none; }
 .need { margin: 0; padding: 10px 12px; border-radius: 6px; background: var(--chip); border-left: 3px solid var(--accent); font-size: 14px; }
 .need b { font-weight: 600; }
+#drawbar { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+#drawbar[hidden] { display: none; }
+.drawbar-acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.drawbar-acts button { padding: 7px 10px; font-size: 13px; }
+@media (max-width: 760px) {
+  #drawbar { left: 52px; right: 52px; transform: none; max-width: none; padding: 6px 8px; font-size: 13px; gap: 6px; }
+  .drawbar-acts { flex-wrap: nowrap; }
+  .drawbar-acts button { padding: 6px 8px; font-size: 12px; }
+}

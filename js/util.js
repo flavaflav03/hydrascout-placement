@@ -34,6 +34,13 @@ function edgeDist(x, y, p) {
   }
   return m;
 }
+// Convex hull of [lat, lon] points (monotone chain on locally scaled coordinates).
+function hullLatLng(ll) {
+  const k = Math.cos((centroidLatLng(ll)[0] * Math.PI) / 180), pts = [...ll].sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+  const cross = (o, a, b) => ((a[1] - o[1]) * k) * (b[0] - o[0]) - (a[0] - o[0]) * ((b[1] - o[1]) * k);
+  const half = (arr) => { const h = []; for (const p of arr) { while (h.length >= 2 && cross(h[h.length - 2], h[h.length - 1], p) <= 0) h.pop(); h.push(p); } h.pop(); return h; };
+  return [...half(pts), ...half([...pts].reverse())];
+}
 function fieldAreaHa(field) { const c = centroidLatLng(field), P = makeProj(c[0], c[1]); return polyArea(field.map(([a, b]) => P.fwd(a, b))) / 10000; }
 
 // Projection definitions for rasters (NDVI files and Sentinel-2 tiles).

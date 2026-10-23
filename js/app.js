@@ -150,15 +150,15 @@ const pivotLayer = L.layerGroup().addTo(map);
 const gridLayer = L.layerGroup().addTo(map);
 const sensorLayer = L.layerGroup().addTo(map);
 
-const S = { field: null, isExample: false, mode: null, draft: [], ndvi: null, scenes: [], result: null };
+const S = { field: null, isExample: false, fieldFromBlocks: false, mode: null, redraw: null, draft: [], ndvi: null, scenes: [], result: null };
 
 // Example field so the tool opens in a working state (farmland in the Beauce, France).
 const EXAMPLE_FIELD = [[48.2862, 1.6043], [48.2871, 1.6121], [48.2832, 1.6139], [48.2808, 1.6098], [48.2817, 1.6038]];
 
 function clearResult() { S.result = null; gridLayer.clearLayers(); sensorLayer.clearLayers(); $("results").hidden = true; }
 
-function setField(latlngs, { fit = true, example = false } = {}) {
-  S.field = latlngs; S.isExample = example; clearResult(); renderKey();
+function setField(latlngs, { fit = true, example = false, fromBlocks = false } = {}) {
+  S.field = latlngs; S.isExample = example; S.fieldFromBlocks = fromBlocks; clearResult(); renderKey();
   fieldLayer.clearLayers();
   hideTimeline(); S.scenes = [];
   if (S.ndvi && S.ndvi.source === "sentinel") clearNdvi("The field changed. Search satellite images again for the new boundary.");
@@ -168,10 +168,10 @@ function setField(latlngs, { fit = true, example = false } = {}) {
   const poly = L.polygon(latlngs, { color: "#ffffff", weight: 2.5, fill: false, dashArray: example ? "6 6" : null }).addTo(fieldLayer);
   if (fit) map.fitBounds(poly.getBounds(), { padding: [30, 30] });
   const c = centroidLatLng(latlngs);
-  $("fieldInfo").textContent = `${example ? "Example field · " : ""}${fieldAreaHa(latlngs).toFixed(2)} ha · ${latlngs.length} corners · centre ${c[0].toFixed(5)}, ${c[1].toFixed(5)}`;
+  $("fieldInfo").textContent = `${example ? "Example field · " : fromBlocks ? "Outline of the blocks · " : ""}${fieldAreaHa(latlngs).toFixed(2)} ha · ${latlngs.length} corners · centre ${c[0].toFixed(5)}, ${c[1].toFixed(5)}`;
   $("soilLink").href = `https://cartes.gouv.fr/explorer-les-cartes/?c=${c[1].toFixed(5)},${c[0].toFixed(5)}&z=15&l=INRA.CARTE.SOLS$GEOPORTAIL:OGC:WMTS(1)&permalink=yes`;
   $("analyzeBtn").disabled = false;
-  if (!example) store.set("hs.field", latlngs);
+  if (!example) { store.set("hs.field", latlngs); store.set("hs.fieldFromBlocks", fromBlocks); }
 }
 
 // ---------- search ----------
@@ -308,38 +308,63 @@ function readDeviceHash() {
 }
 
 // ---------- drawing ----------
-function drawbar(msg) { const d = $("drawbar"); d.hidden = !msg; d.textContent = msg || ""; }
+// Instructions on the map while drawing, with the drawing buttons next to them (the panel can be out of view on a phone).
+function drawbar(msg, acts = []) {
+  const d = $("drawbar"); d.hidden = !msg; d.innerHTML = "";
+  if (!msg) return;
+  const t = document.createElement("span"); t.textContent = msg; d.appendChild(t);
+  if (!acts.length) return;
+  const row = document.createElement("span"); row.className = "drawbar-acts";
+  for (const [label, fn, disabled] of acts) { const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.disabled = !!disabled; b.onclick = fn; row.appendChild(b); }
+  d.appendChild(row);
+}
+const undoPoint = () => { S.draft.pop(); renderDraft(); };
 function renderDraft() {
   draftLayer.clearLayers();
-  const drawing = S.mode === "draw", block = S.mode === "block";
-  if (S.draft.length > 1) L.polyline(S.draft, { color: "#ffd84a", weight: 3 }).addTo(draftLayer);
-  if (S.draft.length > 2) L.polygon(S.draft, { color: "#ffd84a", weight: 0, fillOpacity: 0.15 }).addTo(draftLayer);
+  const drawing = S.mode === "draw", block = S.mode === "block", n = S.draft.length;
+  if (n > 1) L.polyline(S.draft, { color: "#ffd84a", weight: 3 }).addTo(draftLayer);
+  if (n > 2) L.polygon(S.draft, { color: "#ffd84a", weight: 0, fillOpacity: 0.15 }).addTo(draftLayer);
   S.draft.forEach((p, i) => {
     const mk = L.marker(p, { icon: L.divIcon({ className: "", html: '<div class="vertex-pin"></div>', iconSize: [12, 12], iconAnchor: [6, 6] }) }).addTo(draftLayer);
     if (i === 0) mk.on("click", (ev) => { L.DomEvent.stopPropagation(ev); finishDraw(); });
   });
-  $("undoBtn").hidden = !drawing; $("finishBtn").hidden = !drawing; $("finishBtn").disabled = S.draft.length < 3;
-  $("blockUndo").hidden = !block; $("blockFinish").hidden = !block; $("blockFinish").disabled = S.draft.length < 3;
-  const what = block ? `block ${nextBlockName()}` : "the field";
-  drawbar(drawing || block ? (S.draft.length < 3 ? `Tap the map to add the corners of ${what} (${S.draft.length} so far)` : `Tap the first corner or Finish to close ${what}`) : "");
+  $("undoBtn").hidden = !drawing; $("finishBtn").hidden = !drawing; $("finishBtn").disabled = n < 3;
+  $("blockUndo").hidden = !block; $("blockFinish").hidden = !block; $("blockFinish").disabled = n < 3;
+  if (drawing) drawbar(n < 3 ? `Tap the map to add the corners of the field (${n} so far)` : "Tap the first corner or Finish to close the field",
+    [["Undo", undoPoint, !n], ["Finish", finishDraw, n < 3]]);
+  else if (block) {
+    const want = askedBlocks(), redraw = S.redraw != null, name = redraw ? S.blocks[S.redraw].name : nextBlockName();
+    const which = `${redraw ? "Redraw block" : "Block"} ${name}${!redraw && want ? ` (${S.blocks.length + 1} of ${want})` : ""}`;
+    drawbar(n < 3 ? `${which}: tap the map to add its corners (${n} so far)` : `${which}: tap the first corner or Finish block to close it`,
+      [["Undo", undoPoint, !n], ["Finish block", finishDraw, n < 3], [redraw ? "Cancel" : "Done", stopBlocks]]);
+  } else drawbar("");
 }
 function setMode(mode) {
-  S.mode = mode; S.draft = [];
+  S.mode = mode; S.draft = []; S.redraw = null;
   if (mode) map.doubleClickZoom.disable(); else map.doubleClickZoom.enable();
   map.getContainer().style.cursor = mode ? "crosshair" : "";
   $("drawBtn").classList.toggle("active", mode === "draw"); $("drawBtn").textContent = mode === "draw" ? "Cancel" : "Draw boundary";
-  $("blockBtn").classList.toggle("active", mode === "block"); $("blockBtn").textContent = mode === "block" ? "Cancel" : "Draw a block";
+  $("blockBtn").classList.toggle("active", mode === "block"); $("blockBtn").textContent = mode === "block" ? "Done" : S.blocks.length ? "Draw more blocks" : "Draw blocks";
   $("pivCentreBtn").classList.toggle("active", mode === "pivot"); $("pivCentreBtn").textContent = mode === "pivot" ? "Cancel" : "Place pivot centre on map";
   renderDraft();
   if (mode === "pivot") drawbar("Tap the pivot centre on the map");
 }
+// Blocks are drawn one after the other: finishing a block starts the next one, until Done
+// (or until the number of blocks given in step 1 is reached).
 function finishDraw() {
   if (S.draft.length < 3) return;
-  const f = S.draft.slice(), block = S.mode === "block"; setMode(null);
-  if (block) addBlocks([{ name: nextBlockName(), ring: f }]); else setField(f, { fit: false });
+  const f = S.draft.slice();
+  if (S.mode !== "block") { setMode(null); setField(f, { fit: false }); return; }
+  if (S.redraw != null) { S.blocks[S.redraw].ring = f; setMode(null); blocksChanged(); return; }
+  S.blocks.push({ name: nextBlockName(), ring: f }); blocksChanged();
+  const want = askedBlocks();
+  if (want && S.blocks.length >= want) { setMode(null); setStatus(`All ${want} irrigation block${want > 1 ? "s are" : " is"} drawn.`); }
+  else { S.draft = []; renderDraft(); }
 }
+// Done: a block with at least three corners is kept, a shorter one is dropped.
+function stopBlocks() { if (S.redraw == null && S.draft.length >= 3) finishDraw(); if (S.mode === "block") setMode(null); }
 $("drawBtn").addEventListener("click", () => setMode(S.mode === "draw" ? null : "draw"));
-$("undoBtn").addEventListener("click", () => { S.draft.pop(); renderDraft(); });
+$("undoBtn").addEventListener("click", undoPoint);
 $("finishBtn").addEventListener("click", finishDraw);
 map.on("click", (e) => {
   if (S.mode === "draw" || S.mode === "block") { S.draft.push([e.latlng.lat, e.latlng.lng]); renderDraft(); }
@@ -524,7 +549,13 @@ $("pivCentreBtn").addEventListener("click", () => setMode(S.mode === "pivot" ? n
 const blockLayer = L.layerGroup().addTo(map);
 S.blocks = [];
 function nextBlockName() { const used = new Set(S.blocks.map((b) => b.name)); for (let i = 0; ; i++) { const n = i < 26 ? String.fromCharCode(65 + i) : `B${i + 1}`; if (!used.has(n)) return n; } }
-function addBlocks(list) { S.blocks.push(...list); clearResult(); renderBlocks(); }
+function addBlocks(list) { S.blocks.push(...list); blocksChanged(); }
+// Blocks drawn without a field outline (or over the example field) also set the field: the outline around all of them.
+function blocksChanged() {
+  clearResult();
+  if (S.blocks.length && (S.isExample || S.fieldFromBlocks || !S.field)) setField(hullLatLng(S.blocks.flatMap((b) => b.ring)), { fit: false, fromBlocks: true });
+  renderBlocks();
+}
 function renderBlocks() {
   blockLayer.clearLayers();
   S.blocks.forEach((b, bi) => {
@@ -534,17 +565,20 @@ function renderBlocks() {
   const ul = $("blockList"); ul.hidden = !S.blocks.length;
   ul.innerHTML = S.blocks.map((b, bi) => {
     const P = makeProj(...centroidLatLng(b.ring)), ha = polyArea(b.ring.map(([a, c]) => P.fwd(a, c))) / 10000;
-    return `<li><i class="sw" style="background:${zoneColor(bi)}"></i><input type="text" value="${escapeHtml(b.name)}" data-i="${bi}" aria-label="Block name" maxlength="30"><span class="ha">${fmt(ha, 2)} ha</span><button type="button" data-del="${bi}" aria-label="Delete block ${escapeHtml(b.name)}">Delete</button></li>`;
+    return `<li><i class="sw" style="background:${zoneColor(bi)}"></i><input type="text" value="${escapeHtml(b.name)}" data-i="${bi}" aria-label="Block name" maxlength="30"><span class="ha">${fmt(ha, 2)} ha</span><button type="button" data-redraw="${bi}" aria-label="Redraw block ${escapeHtml(b.name)}">Redraw</button><button type="button" data-del="${bi}" aria-label="Delete block ${escapeHtml(b.name)}">Delete</button></li>`;
   }).join("");
   const n = S.blocks.length, sel = $("nSensors");
   sel.disabled = n > 0;
   if (n) sel.value = "auto";
   $("autoOpt").textContent = n ? `One per irrigation block (${n})` : "Auto (by field size)";
+  if (S.mode !== "block") $("blockBtn").textContent = n ? "Draw more blocks" : "Draw blocks";
+  const want = askedBlocks(), bc = $("blockCount"); bc.hidden = !n && !want;
+  bc.textContent = !n ? `No block drawn yet (${want} expected)` : `${n} block${n === 1 ? "" : "s"} drawn${want ? ` of ${want}` : ""} · ${fmt(S.blocks.reduce((a, b) => a + fieldAreaHa(b.ring), 0), 2)} ha`;
   store.set("hs.blocks", S.blocks);
   renderNeed();
 }
 // The grower's own block count (step 1) frames the need: one probe per block. It sets the probe count when no
-// block map is drawn, and is checked against the blocks drawn in step 5.
+// block map is drawn, and is checked against the blocks drawn in step 3.
 function askedBlocks() { const v = Math.round(+$("nBlocks").value); return v >= 1 ? Math.min(v, 200) : null; }
 function renderNeed() {
   const want = askedBlocks(), drawn = S.blocks.length, sel = $("nSensors"), line = $("needLine");
@@ -555,22 +589,26 @@ function renderNeed() {
     } else if (sel.dataset.fromAsk) sel.value = "auto";
     sel.dataset.fromAsk = want ? "1" : "";
   }
-  $("countHint").textContent = drawn ? "One probe per block drawn in step 5, plus an optional one where a block is clearly uneven."
+  $("countHint").textContent = drawn ? "One probe per block drawn in step 3, plus an optional one where a block is clearly uneven."
     : want ? `Set from your answer in step 1: one probe per irrigation block. Without a block map the field is split into ${want} zone${want > 1 ? "s" : ""}, one probe each.`
     : "No block map? Pick the number of irrigation blocks here: one probe per block.";
   line.hidden = !want;
   if (!want) return;
   const probes = `<b>${want} probe${want > 1 ? "s" : ""}</b>, one per block`;
-  line.innerHTML = !drawn ? `You need ${probes}. Outline the area that holds ${want > 1 ? "these blocks" : "the block"} in step 3, then draw ${want > 1 ? "each block" : "it"} in step 5 so every probe lands inside its own block, away from its borders.`
-    : drawn < want ? `You need ${probes}. ${drawn} of ${want} blocks drawn in step 5: draw the others, or the missing blocks get no probe.`
-    : drawn > want ? `${drawn} blocks drawn in step 5, more than the ${want} you gave: the app places <b>${drawn} probes</b>, one per drawn block.`
-    : `You need ${probes}. All ${want} blocks are drawn in step 5.`;
+  line.innerHTML = !drawn ? `You need ${probes}. In step 3, draw ${want > 1 ? `the ${want} blocks one after the other` : "the block"} on the map, so every probe lands inside its own block, away from its borders.`
+    : drawn < want ? `You need ${probes}. ${drawn} of ${want} blocks drawn in step 3: draw the others, or the missing blocks get no probe.`
+    : drawn > want ? `${drawn} blocks drawn in step 3, more than the ${want} you gave: the app places <b>${drawn} probes</b>, one per drawn block.`
+    : `You need ${probes}. All ${want} blocks are drawn in step 3.`;
 }
-$("nBlocks").addEventListener("input", () => { store.set("hs.nBlocks", askedBlocks()); clearResult(); renderNeed(); });
+$("nBlocks").addEventListener("input", () => { store.set("hs.nBlocks", askedBlocks()); clearResult(); renderBlocks(); if (S.mode === "block") renderDraft(); });
 $("blockList").addEventListener("input", (e) => { const i = e.target.dataset.i; if (i == null) return; S.blocks[+i].name = e.target.value.trim() || nextBlockName(); clearResult(); store.set("hs.blocks", S.blocks); blockLayer.getLayers()[+i].setTooltipContent(escapeHtml(S.blocks[+i].name)); });
-$("blockList").addEventListener("click", (e) => { const d = e.target.dataset.del; if (d == null) return; S.blocks.splice(+d, 1); clearResult(); renderBlocks(); });
-$("blockBtn").addEventListener("click", () => setMode(S.mode === "block" ? null : "block"));
-$("blockUndo").addEventListener("click", () => { S.draft.pop(); renderDraft(); });
+$("blockList").addEventListener("click", (e) => {
+  const { del, redraw } = e.target.dataset;
+  if (del != null) { if (S.mode === "block") setMode(null); S.blocks.splice(+del, 1); blocksChanged(); }
+  else if (redraw != null) { setMode("block"); S.redraw = +redraw; renderDraft(); }
+});
+$("blockBtn").addEventListener("click", () => (S.mode === "block" ? stopBlocks() : setMode("block")));
+$("blockUndo").addEventListener("click", undoPoint);
 $("blockFinish").addEventListener("click", finishDraw);
 $("blockFile").addEventListener("change", async (e) => {
   const f = e.target.files[0]; e.target.value = ""; if (!f) return;
@@ -629,7 +667,7 @@ async function analyze() {
       if (s < soilIdx.length - 1) await sleep(1200);
     }
 
-    S.result = computePlacement({ G, elev, soilSamples, ndvi: S.ndvi, irrigation, request: $("nSensors").value, blocks: S.blocks, buffer: Math.max(0, +$("buffer").value || 0) });
+    S.result = computePlacement({ G, elev, soilSamples, ndvi: S.ndvi, irrigation, request: $("nSensors").value, blocks: S.blocks, fieldFromBlocks: S.fieldFromBlocks, buffer: Math.max(0, +$("buffer").value || 0) });
     renderResult();
     setStatus("");
   } catch (err) {
@@ -728,7 +766,7 @@ $("dlGeo").onclick = () => S.result && exportGeoJson(S.result, exportCtx());
 // ---------- start ----------
 (function start() {
   const saved = store.get("hs.field");
-  if (Array.isArray(saved) && saved.length >= 3) setField(saved); else setField(EXAMPLE_FIELD, { example: true });
+  if (Array.isArray(saved) && saved.length >= 3) setField(saved, { fromBlocks: !!store.get("hs.fieldFromBlocks") }); else setField(EXAMPLE_FIELD, { example: true });
   $("fieldName").value = store.get("hs.fieldName") || "";
   const si = store.get("hs.irrigation");
   if (si && si.type) {
