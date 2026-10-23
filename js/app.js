@@ -20,18 +20,129 @@ const SOIL_MAPS = {
 const soilLayers = Object.fromEntries(Object.entries(SOIL_MAPS).map(([k, m]) => [k, L.tileLayer.wms(m.url, { layers: m.layer, styles: "", format: "image/png", transparent: true, version: "1.3.0", opacity: 0.6, maxZoom: 19, attribution: SOIL_ATTR })]));
 function showSoilMap(key) {
   Object.values(soilLayers).forEach((l) => map.removeLayer(l));
-  const m = SOIL_MAPS[key], lg = $("soilLegend");
-  lg.hidden = !m;
-  if (!m) return;
-  soilLayers[key].addTo(map);
-  lg.src = `${m.url}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetLegendGraphic&LAYER=${m.layer}&FORMAT=image/png&SLD_VERSION=1.1.0`;
+  if (SOIL_MAPS[key]) soilLayers[key].addTo(map);
+  renderKey();
 }
 $("soilMap").addEventListener("change", (e) => showSoilMap(e.target.value));
+const soilOn = () => Object.keys(soilLayers).find((k) => map.hasLayer(soilLayers[k])) || null;
+
+// ---------- map key ----------
+// One legend box on the map for whatever is shown (soil map, NDVI), large enough to read on a phone.
+// It can be folded away; tapping the map (when not drawing) shows the soil group and NDVI at that spot.
+const NDVI_BANDS = [
+  [-1, 0.2, "Bare soil, stubble or residue"],
+  [0.2, 0.4, "Sparse or emerging crop, or stressed"],
+  [0.4, 0.6, "Moderate vegetation"],
+  [0.6, 0.8, "Dense, healthy crop"],
+  [0.8, 1, "Very dense canopy"],
+];
+const ndviBand = (v) => NDVI_BANDS.find(([a, b]) => v < b) || NDVI_BANDS[NDVI_BANDS.length - 1];
+// Starts folded on phones, where the map is small; the choice is remembered.
+const KEY = { open: store.get("hs.keyOpen") ?? !matchMedia("(max-width: 760px)").matches, allSoils: false, here: null, hereFor: null, hereErr: null };
+const keyBox = L.DomUtil.create("div", "map-key");
+L.DomEvent.disableClickPropagation(keyBox); L.DomEvent.disableScrollPropagation(keyBox);
+const KeyControl = L.Control.extend({ onAdd: () => keyBox });
+new KeyControl({ position: "bottomleft" }).addTo(map);
+keyBox.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  e.stopPropagation(); // the button is replaced below, so Leaflet would no longer see it came from the key and treat it as a map tap
+  if (b.dataset.act === "fold") { KEY.open = !KEY.open; store.set("hs.keyOpen", KEY.open); }
+  if (b.dataset.act === "allsoils") KEY.allSoils = !KEY.allSoils;
+  renderKey();
+});
+
+function ndviScale() { const nd = S.ndvi, ov = nd && nd.overlay; return nd && nd.source === "sentinel" ? NDVI_SCALE : ov ? [ov.lo, ov.hi] : [0, 1]; }
+const ndviColour = (v) => { const [c0, c1] = ndviScale(); return ndviRamp((v - c0) / (c1 - c0 || 1)); };
+const swatch = (c) => `<i class="sw" style="background:${c}"></i>`;
+
+function ndviKey() {
+  const nd = S.ndvi, ov = nd && nd.overlay; if (!ov) return "";
+  const [c0, c1] = ndviScale(), pos = (v) => `${(Math.max(0, Math.min(1, (v - c0) / (c1 - c0 || 1))) * 100).toFixed(1)}%`;
+  const bands = NDVI_BANDS.map(([a, b, txt]) => {
+    const lo = Math.max(a, c0 > 0 ? -1 : a), mid = a < 0 ? Math.min(0.1, b) : (a + b) / 2;
+    const range = a < 0 ? `below ${fmt(b, 1)}` : b >= 1 ? `above ${fmt(a, 1)}` : `${fmt(lo, 1)}–${fmt(b, 1)}`;
+    const cur = ov.mean >= a && ov.mean < b ? " cur" : "";
+    return `<li class="${cur}">${swatch(ndviColour(mid))}<span class="rng">${range}</span><span>${txt}</span></li>`;
+  }).join("");
+  return `<section><h3>Crop vigour (NDVI)</h3>
+    <div class="bar" style="background:linear-gradient(90deg,${Array.from({ length: 11 }, (_, i) => ndviRamp(i / 10)).join(",")})">
+      <span class="mark" style="left:${pos(ov.mean)}" title="Field average"></span></div>
+    <div class="ends"><span>${fmt(c0, 1)}</span><span>${fmt(c1, 1)}</span></div>
+    <ul>${bands}</ul>
+    <p class="note">This field: average <b>${fmt(ov.mean, 2)}</b> (${fmt(ov.lo, 2)} to ${fmt(ov.hi, 2)}). ${nd.source === "sentinel" ? "Same colours for every date, so dates compare directly." : "Colours stretched to this file's range."}</p></section>`;
+}
+
+function soilKey() {
+  const k = soilOn(); if (!k) return "";
+  if (k === "clay") {
+    const m = SOIL_MAPS.clay;
+    return `<section><h3>Clay content, 15–30 cm</h3><img class="wms-legend" alt="Clay content legend" src="${m.url}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetLegendGraphic&LAYER=${m.layer}&FORMAT=image/png&SLD_VERSION=1.1.0">
+      <p class="note">More clay holds more water but drains slowly. Tap the map to read the value at a spot.</p></section>`;
+  }
+  loadSoilHere();
+  const here = KEY.here || [], names = new Set(here.map((c) => c.name));
+  const row = (name, p) => `<li>${swatch((WRB[name] || ["#ccc"])[0])}<span><b>${escapeHtml(name)}</b>${p != null ? ` <span class="pct">${p} %</span>` : ""}<br><span class="desc">${escapeHtml((WRB[name] || [, ""])[1])}</span></span></li>`;
+  const top = here.length ? `<p class="note">Most likely at ${S.field ? "the field" : "the map centre"}:</p><ul class="soils">${here.map((c) => row(c.name, c.p)).join("")}</ul>`
+    : `<p class="note">${KEY.hereErr ? escapeHtml(KEY.hereErr) : "Looking up the soil here…"}</p>`;
+  const all = KEY.allSoils ? `<ul class="soils all">${Object.keys(WRB).filter((n) => !names.has(n)).map((n) => row(n, null)).join("")}</ul>` : "";
+  return `<section><h3>Soil type (WRB)</h3>${top}
+    <button type="button" class="link" data-act="allsoils">${KEY.allSoils ? "Hide other soil groups" : `Show all ${Object.keys(WRB).length} soil groups`}</button>${all}
+    <p class="note">Tap the map to see the soil at any spot.</p></section>`;
+}
+
+// Soil groups at the field centre (or map centre): one SoilGrids call per place, kept until the place changes.
+async function loadSoilHere() {
+  const c = S.field ? centroidLatLng(S.field) : [map.getCenter().lat, map.getCenter().lng];
+  const id = `${c[0].toFixed(3)},${c[1].toFixed(3)}`;
+  if (KEY.hereFor === id) return;
+  KEY.hereFor = id; KEY.here = null; KEY.hereErr = null;
+  try { const r = await fetchWrb(c[0], c[1]); if (KEY.hereFor !== id) return; KEY.here = r; if (!r.length) KEY.hereErr = "No soil data here (water, town or outside the map)."; }
+  catch (err) { if (KEY.hereFor !== id) return; KEY.hereErr = err.message; KEY.hereFor = null; }
+  renderKey();
+}
+
+function renderKey() {
+  const body = soilKey() + ndviKey();
+  keyBox.hidden = !body;
+  if (body) keyBox.innerHTML = `<button type="button" class="fold" data-act="fold" aria-expanded="${KEY.open}">Map key <span aria-hidden="true">${KEY.open ? "▾" : "▸"}</span></button>${KEY.open ? `<div class="key-body">${body}</div>` : ""}`;
+  liftKey();
+}
+// On a narrow map the attribution wraps across the full width: lift the bottom-left controls above it.
+function liftKey() {
+  const a = map.attributionControl.getContainer(), corner = keyBox.parentNode;
+  corner.style.bottom = a.offsetWidth > map.getSize().x / 2 ? `${a.offsetHeight}px` : "";
+}
+map.on("layeradd layerremove resize", liftKey);
+
+// Tap the map: soil group and/or NDVI at that spot.
+async function identify(latlng) {
+  const k = soilOn(), nd = S.ndvi && S.ndvi.overlay ? S.ndvi : null;
+  if (!k && !nd) return;
+  const lines = [];
+  if (nd) {
+    const v = sampleRaster(nd, latlng.lat, latlng.lng, 0);
+    lines.push(v == null ? "NDVI: no value here (outside the field or under cloud)" : `${swatch(ndviColour(v))} NDVI <b>${fmt(v, 2)}</b>: ${ndviBand(v)[2].toLowerCase()}`);
+  }
+  const pop = L.popup({ maxWidth: 280 }).setLatLng(latlng).setContent(`<div class="ident">${[...lines, k ? "Soil: loading…" : ""].filter(Boolean).join("<br>")}</div>`).openOn(map);
+  if (!k) return;
+  let soil;
+  try {
+    if (k === "wrb") {
+      const r = await fetchWrb(latlng.lat, latlng.lng, 3);
+      soil = r.length ? r.map((c, i) => `${swatch((WRB[c.name] || ["#ccc"])[0])} ${i ? "" : "<b>"}${escapeHtml(c.name)}${i ? "" : "</b>"}${c.p != null ? ` ${c.p} %` : ""}${i ? "" : `<br><span class="desc">${escapeHtml((WRB[c.name] || [, ""])[1])}</span>`}`).join("<br>") : "Soil: no data here";
+    } else {
+      const v = await fetchSoil(latlng.lat, latlng.lng);
+      soil = v ? `Clay <b>${fmt(v.clay, 0)} %</b>, sand ${fmt(v.sand, 0)} %, silt ${fmt(v.silt, 0)} % (0–60 cm, ${textureClass(v.sand, v.silt, v.clay)})` : "Soil: no data here";
+    }
+  } catch (err) { soil = escapeHtml(err.message); }
+  pop.setContent(`<div class="ident">${[...lines, soil].join("<br>")}</div>`);
+}
 
 const ndviLayer = L.layerGroup().addTo(map);
 L.control.layers({ Satellite: sat, Map: osm }, { "Place names": places, "Soil type (WRB)": soilLayers.wrb, "Clay content": soilLayers.clay, "NDVI image": ndviLayer }, { position: "topright" }).addTo(map);
 L.control.scale({ imperial: false }).addTo(map);
-map.on("overlayadd overlayremove", () => { $("soilMap").value = Object.keys(soilLayers).find((k) => map.hasLayer(soilLayers[k])) || "off"; });
+map.on("overlayadd overlayremove", () => { $("soilMap").value = soilOn() || "off"; renderKey(); });
+map.on("moveend", () => { if (!S.field && soilOn() === "wrb") renderKey(); });
 
 const fieldLayer = L.layerGroup().addTo(map);
 const draftLayer = L.layerGroup().addTo(map);
@@ -47,7 +158,7 @@ const EXAMPLE_FIELD = [[48.2862, 1.6043], [48.2871, 1.6121], [48.2832, 1.6139], 
 function clearResult() { S.result = null; gridLayer.clearLayers(); sensorLayer.clearLayers(); $("results").hidden = true; }
 
 function setField(latlngs, { fit = true, example = false } = {}) {
-  S.field = latlngs; S.isExample = example; clearResult();
+  S.field = latlngs; S.isExample = example; clearResult(); renderKey();
   fieldLayer.clearLayers();
   hideTimeline(); S.scenes = [];
   if (S.ndvi && S.ndvi.source === "sentinel") clearNdvi("The field changed. Search satellite images again for the new boundary.");
@@ -176,6 +287,7 @@ $("finishBtn").addEventListener("click", finishDraw);
 map.on("click", (e) => {
   if (S.mode === "draw") { S.draft.push([e.latlng.lat, e.latlng.lng]); renderDraft(); }
   else if (S.mode === "pivot") { irr.pivotCentre = [e.latlng.lat, e.latlng.lng]; setMode(null); updateIrrigation(); }
+  else identify(e.latlng);
 });
 
 // ---------- import boundary ----------
@@ -213,13 +325,11 @@ function showNdvi(nd) {
   if (ov) L.imageOverlay(ov.url, ov.bounds, { opacity: 0.9, interactive: false }).addTo(ndviLayer);
   $("ndviMeta").hidden = false;
   $("ndviMeta").textContent = ov ? `${nd.label} · field NDVI ${fmt(ov.lo, 2)} to ${fmt(ov.hi, 2)}, average ${fmt(ov.mean, 2)}` : `${nd.label} · does not cover this field`;
-  const [c0, c1] = nd.source === "sentinel" ? NDVI_SCALE : ov ? [ov.lo, ov.hi] : [0, 1];
-  $("ndviLegend").hidden = !ov;
-  $("ndviLegend").innerHTML = `<div class="ramp" style="background:linear-gradient(90deg,${Array.from({ length: 11 }, (_, i) => ndviRamp(i / 10)).join(",")})"></div><div class="ends"><span>${fmt(c0, 2)}</span><span>NDVI${nd.source === "sentinel" ? " (same scale for every date)" : ""}</span><span>${fmt(c1, 2)}</span></div>`;
+  renderKey();
 }
 function setNdvi(nd) { S.ndvi = nd; $("ndviClear").hidden = false; showNdvi(nd); if (S.result) setNdviStatus("NDVI updated. Run “Find sensor spots” again to use it."); }
 function clearNdvi(msg) {
-  S.ndvi = null; ndviLayer.clearLayers(); $("ndviClear").hidden = true; $("ndviMeta").hidden = true; $("ndviLegend").hidden = true;
+  S.ndvi = null; ndviLayer.clearLayers(); $("ndviClear").hidden = true; $("ndviMeta").hidden = true; renderKey();
   if (msg) setNdviStatus(msg);
 }
 function hideTimeline() { TL.playing = false; TL.token++; $("tPlay").textContent = "Play"; $("sceneRow").hidden = true; }
