@@ -72,25 +72,78 @@ function showPin(lat, lon, label) {
   L.marker([lat, lon], { interactive: false, keyboard: false, zIndexOffset: 1000, icon: L.divIcon({ className: "", html: PIN_SVG, iconSize: [30, 42], iconAnchor: [15, 41], tooltipAnchor: [0, -40] }) })
     .bindTooltip(escapeHtml(label), { permanent: true, direction: "top", className: "pin-label" }).addTo(searchLayer);
 }
+// Address suggestions while typing come from the French national geocoder (IGN Géoplateforme, Base Adresse
+// Nationale: addresses, streets, towns and named places). Nominatim (OpenStreetMap) is the fallback for other countries.
+const setSearchStatus = (msg, err) => setStatus(msg, err, "searchStatus");
+const COORDS_RE = /^\s*(-?\d+(?:\.\d+)?)\s*[,; ]\s*(-?\d+(?:\.\d+)?)\s*$/;
+const SUG = { items: [], active: -1, ctrl: null, timer: null };
+const KIND = { housenumber: "Address", street: "Street", locality: "Place", municipality: "Town" };
+
+async function geocodeFrance(q, signal) {
+  const c = map.getCenter();
+  const url = `https://data.geopf.fr/geocodage/search?q=${encodeURIComponent(q)}&limit=6&autocomplete=1&lat=${c.lat.toFixed(4)}&lon=${c.lng.toFixed(4)}`;
+  const r = await fetch(url, { signal }); if (!r.ok) throw new Error(`geocoder answered ${r.status}`);
+  const j = await r.json();
+  return (j.features || []).map((f) => {
+    const p = f.properties, [lon, lat] = f.geometry.coordinates;
+    const zoom = p.type === "municipality" ? 13 : p.type === "locality" ? 15 : 17;
+    return { lat, lon, zoom, label: p.label, detail: [KIND[p.type], p.context].filter(Boolean).join(" · ") };
+  });
+}
+async function geocodeWorld(q) {
+  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);
+  if (!r.ok) throw new Error(`Nominatim answered ${r.status}`);
+  return (await r.json()).map((h) => ({ lat: +h.lat, lon: +h.lon, bbox: h.boundingbox.map(Number), label: h.display_name.split(",").slice(0, 3).join(","), detail: "" }));
+}
+function goTo(hit) {
+  closeSuggest(); setSearchStatus("");
+  showPin(hit.lat, hit.lon, hit.label);
+  if (hit.bbox) map.fitBounds([[hit.bbox[0], hit.bbox[2]], [hit.bbox[1], hit.bbox[3]]], { maxZoom: 17 });
+  else map.setView([hit.lat, hit.lon], hit.zoom || 16);
+}
+function closeSuggest() { $("suggest").hidden = true; $("q").setAttribute("aria-expanded", "false"); SUG.items = []; SUG.active = -1; }
+function renderSuggest() {
+  const ul = $("suggest");
+  if (!SUG.items.length) return closeSuggest();
+  ul.innerHTML = SUG.items.map((h, i) => `<li role="option" id="sug${i}" data-i="${i}" aria-selected="${i === SUG.active}"><b>${escapeHtml(h.label)}</b>${h.detail ? `<span>${escapeHtml(h.detail)}</span>` : ""}</li>`).join("");
+  ul.hidden = false; $("q").setAttribute("aria-expanded", "true");
+  if (SUG.active >= 0) $("q").setAttribute("aria-activedescendant", `sug${SUG.active}`); else $("q").removeAttribute("aria-activedescendant");
+}
+$("q").addEventListener("input", () => {
+  const q = $("q").value.trim(); clearTimeout(SUG.timer);
+  if (q.length < 3 || COORDS_RE.test(q)) return closeSuggest();
+  SUG.timer = setTimeout(async () => {
+    if (SUG.ctrl) SUG.ctrl.abort(); SUG.ctrl = new AbortController();
+    try { SUG.items = await geocodeFrance(q, SUG.ctrl.signal); SUG.q = q; SUG.active = -1; renderSuggest(); }
+    catch (err) { if (err.name !== "AbortError") { console.warn(err); closeSuggest(); } }
+  }, 250);
+});
+$("q").addEventListener("keydown", (e) => {
+  if ($("suggest").hidden) return;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); const n = SUG.items.length; SUG.active = e.key === "ArrowDown" ? (SUG.active + 1) % n : SUG.active <= 0 ? n - 1 : SUG.active - 1; renderSuggest(); }
+  else if (e.key === "Escape") closeSuggest();
+  else if (e.key === "Enter" && SUG.active >= 0) { e.preventDefault(); const h = SUG.items[SUG.active]; $("q").value = h.label; goTo(h); }
+});
+// mousedown (not click) so the choice lands before the input loses focus
+$("suggest").addEventListener("mousedown", (e) => { const li = e.target.closest("li"); if (!li) return; e.preventDefault(); const h = SUG.items[+li.dataset.i]; $("q").value = h.label; goTo(h); });
+$("q").addEventListener("blur", () => setTimeout(closeSuggest, 150));
+
 $("searchForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const q = $("q").value.trim(); if (!q) { searchLayer.clearLayers(); return; }
-  const m = q.match(/^\s*(-?\d+(?:\.\d+)?)\s*[,; ]\s*(-?\d+(?:\.\d+)?)\s*$/);
+  const q = $("q").value.trim(); if (!q) { searchLayer.clearLayers(); closeSuggest(); return; }
+  const m = q.match(COORDS_RE);
   if (m) {
     const lat = +m[1], lon = +m[2];
-    if (Math.abs(lat) > 90 || Math.abs(lon) > 180) { setStatus("Coordinates must be latitude, longitude in decimal degrees, e.g. 48.2840, 1.6090.", true); return; }
-    setStatus(""); showPin(lat, lon, `${lat.toFixed(6)}, ${lon.toFixed(6)}`); map.setView([lat, lon], 17); return;
+    if (Math.abs(lat) > 90 || Math.abs(lon) > 180) { setSearchStatus("Coordinates must be latitude, longitude in decimal degrees, e.g. 48.2840, 1.6090.", true); return; }
+    goTo({ lat, lon, zoom: 17, label: `${lat.toFixed(6)}, ${lon.toFixed(6)}` }); return;
   }
-  try {
-    setStatus("Searching…");
-    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`, { headers: { "Accept-Language": navigator.language || "en" } });
-    const j = await r.json();
-    if (!j.length) { setStatus(`No place found for "${q}". Try a town name or coordinates.`, true); return; }
-    setStatus("");
-    const hit = j[0], lat = +hit.lat, lon = +hit.lon, b = hit.boundingbox.map(Number);
-    showPin(lat, lon, hit.display_name.split(",").slice(0, 3).join(","));
-    map.fitBounds([[b[0], b[2]], [b[1], b[3]]], { maxZoom: 17 });
-  } catch (err) { setStatus("Search is unavailable right now. Pan the map by hand or type coordinates.", true); }
+  if (SUG.items.length && SUG.q === q) return goTo(SUG.items[Math.max(0, SUG.active)]);
+  setSearchStatus("Searching…"); closeSuggest();
+  let hits = [];
+  try { hits = await geocodeFrance(q); } catch (err) { console.warn(err); }
+  if (!hits.length) { try { hits = await geocodeWorld(q); } catch (err) { console.warn(err); } }
+  if (hits.length) goTo(hits[0]);
+  else setSearchStatus(`No place found for "${q}". Try another spelling, a town name, or coordinates.`, true);
 });
 
 // ---------- drawing ----------
