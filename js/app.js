@@ -258,9 +258,10 @@ $("searchForm").addEventListener("submit", async (e) => {
 });
 
 // ---------- Digital Matter device position ----------
-// The Device Manager API key stays on the HSTI Logger Overview server. This page sends the user to its
-// /locate page (behind its login), which looks the device up and sends them back here with the last
-// GPS fix in the URL hash: #device=<serial>&lat=…&lng=…&seen=… (or &error=notfound|nogps).
+// The Device Manager API key stays on the HSTI Logger Overview server, behind its login. This page opens its
+// locate.html in a small window; that page looks the device up and posts the last GPS fix back to this page
+// (only this origin can receive it). If pop-ups are blocked, it opens in this tab and comes back with the
+// position in the URL hash: #device=<serial>&lat=…&lng=…&seen=…&product=… (or &error=notfound|nogps).
 const LOGGER_URL = ""; // e.g. "https://devices.hsti.fr"; when empty, the address is asked once and remembered
 const loggerUrl = () => (LOGGER_URL || store.get("hs.loggerUrl") || "").replace(/\/+$/, "");
 $("loggerCfg").hidden = !!loggerUrl();
@@ -274,25 +275,36 @@ $("deviceForm").addEventListener("submit", (e) => {
     store.set("hs.loggerUrl", u.replace(/\/+$/, ""));
   }
   store.set("hs.devSerial", serial);
-  setSearchStatus("Opening HSTI Logger Overview…");
-  location.href = `${loggerUrl()}/locate?serial=${serial}`;
+  const url = `${loggerUrl()}/locate.html?serial=${serial}`;
+  const w = window.open(url, "hs-locate", "popup,width=480,height=640");
+  if (!w) { location.href = url; return; }
+  setSearchStatus(`Looking up device ${serial} in HSTI Logger Overview… If it asks you to log in, log in there, then press Use its GPS again.`);
 });
-// Coming back from Logger Overview.
-function readDeviceHash() {
-  const h = new URLSearchParams(location.hash.slice(1)), serial = h.get("device");
+window.addEventListener("message", (e) => {
+  let origin = null; try { origin = new URL(loggerUrl()).origin; } catch (err) { return; }
+  if (e.origin !== origin || !e.data || e.data.type !== "hydrascout-device") return;
+  showDevice(e.data);
+});
+function showDevice(d) {
+  const serial = String(d.device || "").replace(/\D/g, "");
   if (!serial) return;
-  history.replaceState(null, "", location.pathname + location.search);
   $("devSerial").value = serial;
-  const err = h.get("error");
-  if (err) {
-    setSearchStatus(err === "nogps" ? `Device ${serial} has no GPS position yet in Device Manager.` : err === "notfound" ? `Device ${serial} was not found in Device Manager. Check the serial.` : `Could not read device ${serial}: ${err}`, true);
+  if (d.error) {
+    setSearchStatus(d.error === "nogps" ? `Device ${serial} has no GPS position yet in Device Manager.` : d.error === "notfound" ? `Device ${serial} was not found in Device Manager. Check the serial.` : `Could not read device ${serial}: ${d.error}`, true);
     return;
   }
-  const lat = +h.get("lat"), lon = +h.get("lng");
-  if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) { setSearchStatus(`Device ${serial}: the position received is not valid.`, true); return; }
-  const seen = h.get("seen"), when = seen && !Number.isNaN(Date.parse(seen)) ? new Date(seen).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : null;
+  const lat = +d.lat, lon = +d.lng;
+  if (d.lat === "" || d.lng === "" || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) { setSearchStatus(`Device ${serial}: the position received is not valid.`, true); return; }
+  const when = d.seen && !Number.isNaN(Date.parse(d.seen)) ? new Date(d.seen).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : null;
   goTo({ lat, lon, zoom: 17, label: `Device ${serial}` });
-  setSearchStatus(`Device ${serial}${h.get("product") ? ` (${h.get("product")})` : ""}: last GPS position ${lat.toFixed(6)}, ${lon.toFixed(6)}${when ? `, connected ${when}` : ""}. Draw the field around it.`);
+  setSearchStatus(`Device ${serial}${d.product ? ` (${d.product})` : ""}: last GPS position ${lat.toFixed(6)}, ${lon.toFixed(6)}${when ? `, connected ${when}` : ""}. Draw the field around it.`);
+}
+// Coming back in this tab (pop-up blocked).
+function readDeviceHash() {
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (!h.get("device")) return;
+  history.replaceState(null, "", location.pathname + location.search);
+  showDevice(Object.fromEntries(h));
 }
 
 // ---------- drawing ----------
