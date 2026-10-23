@@ -74,18 +74,20 @@ const IRRIGATION_LABELS = {
 
 // Pivot geometry for each grid point: distance to centre, whether it is under the pivot, and whether it is a poor spot
 // (pivot centre, end of the span, or a tower wheel track).
-function pivotInfo(G, irr) {
+// Pivot position of a point (local metres): distance to the centre, under the pivot or not, and spots to avoid.
+function pivotAt(G, irr) {
   const pv = irr && irr.type === "pivot" && irr.pivot; if (!pv || !pv.radius) return null;
   const [cx, cy] = G.P.fwd(pv.lat, pv.lon), R = pv.radius, span = pv.span || 0;
-  return G.pts.map((p) => {
-    const d = Math.hypot(p.x - cx, p.y - cy), under = d <= R;
+  return (x, y) => {
+    const d = Math.hypot(x - cx, y - cy), under = d <= R;
     let avoid = null;
     if (under && d < 0.15 * R) avoid = "centre";
     else if (under && R - d < 15) avoid = "end";
     else if (under && span > 0) { const k = Math.round(d / span); if (k >= 1 && Math.abs(d - k * span) < 5) avoid = "track"; }
     return { d, under, avoid, spanNo: span > 0 ? Math.floor(d / span) + 1 : null };
-  });
+  };
 }
+function pivotInfo(G, irr) { const at = pivotAt(G, irr); return at && G.pts.map((p) => at(p.x, p.y)); }
 
 // inputs: { G, elev, soilSamples, ndvi, irrigation, request ("auto" or number), buffer }
 function computePlacement(inp) {
@@ -208,4 +210,41 @@ function describe(R) {
   if (R.summary.flat && R.sensors.length > 1 && !R.soil && !R.ndvi) R.notes.push("This field looks uniform with the available data, so the spots are mainly spread out to cover it. Adding NDVI usually reveals more useful differences.");
   R.notes.push("Elevation comes from a 90 m model and soil from 250 m estimates. They show broad patterns, not plot-level detail. NDVI (10 m) sharpens the result.");
   R.notes.push("On site: install in the crop row away from wheel tracks, headlands, trees and drains, and note the exact position once installed.");
+}
+
+// A spot moved by hand: describe the point where it now is (nearest grid cell) and warn where it departs
+// from the recommendation. The recommended spot is kept so it can be restored.
+const AVOID_TEXT = { centre: "close to the pivot centre", end: "near the end of the pivot", track: "on or next to a tower wheel track" };
+function moveSensor(R, s, lat, lon) {
+  if (!s.orig) s.orig = { i: s.i, lat: s.lat, lon: s.lon, why: s.why, tip: s.tip, edge: s.edge };
+  const P = R.G.P, [x, y] = P.fwd(lat, lon), [ox, oy] = P.fwd(s.orig.lat, s.orig.lon);
+  const j = R.pts.reduce((b, p, k) => (Math.hypot(p.x - x, p.y - y) < Math.hypot(R.pts[b].x - x, R.pts[b].y - y) ? k : b), 0);
+  const sm = R.summary, E = R.T.elev, eRange = sm.eMax - sm.eMin, edge = edgeDist(x, y, R.G.poly);
+  const why = [`Moved by hand, ${fmt(Math.hypot(x - ox, y - oy), 0)} m from the recommended spot.`];
+  if (!sm.flat) {
+    const rel = eRange > 0 ? (E[j] - sm.eMin) / eRange : 0.5;
+    why.push(`${rel > 0.66 ? "Higher" : rel < 0.33 ? "Lower" : "Middle"} part of the field (around ${fmt(E[j], 0)} m), slope ${fmt(R.T.slope[j], 1)}%.`);
+    if (R.T.tpi[j] < -0.25) why.push("Slight hollow: water tends to collect here, so soil stays wetter for longer.");
+    else if (R.T.tpi[j] > 0.25) why.push("Slight rise: this area drains and dries out faster.");
+  } else why.push(`Flat terrain (slope ${fmt(R.T.slope[j], 1)}%).`);
+  if (R.soil) {
+    const cl = R.soil.clay[j], diff = cl - sm.fClay;
+    why.push(`Soil: ${textureClass(R.soil.sand[j], R.soil.silt[j], cl)} (about ${fmt(cl, 0)}% clay, ${fmt(R.soil.sand[j], 0)}% sand)${Math.abs(diff) >= 2 ? `, ${diff > 0 ? "heavier" : "lighter"} than the field average` : ""}.`);
+  }
+  if (R.ndvi) { const n = R.ndvi[j], d = n - sm.fNdvi; why.push(`Vegetation (NDVI ${fmt(n, 2)}) ${Math.abs(d) < 0.03 ? "close to the field average" : d > 0 ? "stronger than the field average" : "weaker than the field average"}.`); }
+  const q = R.piv ? pivotAt(R.G, R.irrigation)(x, y) : null;
+  if (q) {
+    if (!q.under) why.push("Outside the pivot circle (not irrigated).");
+    else if (q.avoid) why.push(`Warning: ${AVOID_TEXT[q.avoid]} (${fmt(q.d, 0)} m from the centre). Readings or the cable may suffer here.`);
+    else why.push(`Under the pivot, ${fmt(q.d, 0)} m from the centre${q.spanNo ? ` (span ${q.spanNo})` : ""}.`);
+  }
+  why.push(R.lab[j] === s.zone ? `Still in zone ${s.zone + 1}, which it represents (about ${fmt(s.share * 100, 0)}% of the field).`
+    : `Warning: this point is in zone ${R.lab[j] + 1}, so it no longer represents zone ${s.zone + 1} (about ${fmt(s.share * 100, 0)}% of the field).`);
+  if (edge < R.buffer) why.push(`Warning: only ${fmt(edge, 0)} m from the field edge (${R.buffer} m recommended).`);
+  Object.assign(s, { i: j, lat, lon, x, y, edge, why, moved: true, tip: q && !q.under ? null : irrigationTip(R.irrigation) });
+}
+function resetSensor(s) {
+  if (!s.orig) return;
+  Object.assign(s, s.orig, { moved: false });
+  delete s.orig; delete s.x; delete s.y;
 }
