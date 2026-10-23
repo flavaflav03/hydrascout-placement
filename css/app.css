@@ -109,3 +109,4 @@ footer { font-size: 12px; color: var(--muted); margin-top: auto; }
 #sceneRow { grid-template-columns: 1fr; }
 #sceneSel { width: 100%; min-width: 0; }
 #soilLegend { max-width: 100%; max-height: 240px; align-self: flex-start; background: #fff; border-radius: 4px; padding: 4px; }
+.pin-label { font: 600 13px/1.2 var(--font-ui); width: max-content; max-width: 240px; white-space: normal; }

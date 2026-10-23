@@ -64,19 +64,32 @@ function setField(latlngs, { fit = true, example = false } = {}) {
 }
 
 // ---------- search ----------
+// Searched place or coordinates are marked with a pin (not clickable, so drawing on top of it still works).
+const searchLayer = L.layerGroup().addTo(map);
+const PIN_SVG = '<svg width="30" height="42" viewBox="0 0 30 42" aria-hidden="true"><path d="M15 1C7.3 1 1 7.2 1 14.9 1 25.3 15 41 15 41s14-15.7 14-26.1C29 7.2 22.7 1 15 1z" fill="#d6452f" stroke="#fff" stroke-width="2"/><circle cx="15" cy="15" r="5" fill="#fff"/></svg>';
+function showPin(lat, lon, label) {
+  searchLayer.clearLayers();
+  L.marker([lat, lon], { interactive: false, keyboard: false, zIndexOffset: 1000, icon: L.divIcon({ className: "", html: PIN_SVG, iconSize: [30, 42], iconAnchor: [15, 41], tooltipAnchor: [0, -40] }) })
+    .bindTooltip(escapeHtml(label), { permanent: true, direction: "top", className: "pin-label" }).addTo(searchLayer);
+}
 $("searchForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const q = $("q").value.trim(); if (!q) return;
+  const q = $("q").value.trim(); if (!q) { searchLayer.clearLayers(); return; }
   const m = q.match(/^\s*(-?\d+(?:\.\d+)?)\s*[,; ]\s*(-?\d+(?:\.\d+)?)\s*$/);
-  if (m) { map.setView([+m[1], +m[2]], 16); return; }
+  if (m) {
+    const lat = +m[1], lon = +m[2];
+    if (Math.abs(lat) > 90 || Math.abs(lon) > 180) { setStatus("Coordinates must be latitude, longitude in decimal degrees, e.g. 48.2840, 1.6090.", true); return; }
+    setStatus(""); showPin(lat, lon, `${lat.toFixed(6)}, ${lon.toFixed(6)}`); map.setView([lat, lon], 17); return;
+  }
   try {
     setStatus("Searching…");
     const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`, { headers: { "Accept-Language": navigator.language || "en" } });
     const j = await r.json();
     if (!j.length) { setStatus(`No place found for "${q}". Try a town name or coordinates.`, true); return; }
     setStatus("");
-    const b = j[0].boundingbox.map(Number);
-    map.fitBounds([[b[0], b[2]], [b[1], b[3]]], { maxZoom: 16 });
+    const hit = j[0], lat = +hit.lat, lon = +hit.lon, b = hit.boundingbox.map(Number);
+    showPin(lat, lon, hit.display_name.split(",").slice(0, 3).join(","));
+    map.fitBounds([[b[0], b[2]], [b[1], b[3]]], { maxZoom: 17 });
   } catch (err) { setStatus("Search is unavailable right now. Pan the map by hand or type coordinates.", true); }
 });
 
