@@ -56,12 +56,23 @@
         <label class="btn file">Upload NDVI GeoTIFF<input type="file" id="ndviFile" accept=".tif,.tiff"></label>
         <button id="ndviClear" type="button" hidden>Remove NDVI</button>
       </div>
-      <div class="opt" id="sceneRow" hidden>
-        <label for="sceneSel">Image date</label>
-        <select id="sceneSel"></select>
+      <div class="timeline" id="sceneRow" hidden>
+        <div class="row tl-controls">
+          <button type="button" id="tPrev" aria-label="Previous date">◀</button>
+          <input type="range" id="tRange" min="0" max="0" value="0" aria-label="Image date">
+          <button type="button" id="tNext" aria-label="Next date">▶</button>
+          <button type="button" id="tPlay">Play</button>
+        </div>
+        <div class="tl-date" id="tDate"></div>
+        <svg id="tChart" class="tl-chart" viewBox="0 0 320 110" role="img" aria-label="Field average NDVI over time"></svg>
+        <div class="row tl-foot">
+          <button type="button" id="tAll">Load all dates</button>
+          <span class="hint" id="tHint">The spots use the date shown.</span>
+        </div>
       </div>
       <p class="ndvi-meta" id="ndviMeta" hidden></p>
-      <p class="hint" id="ndviInfo">Recommended. The app searches free Sentinel-2 images (10 m) of the last 14 months, skips cloudy ones and picks the clearest image with full crop cover. You can also upload your own NDVI map from a drone.</p>
+      <div class="legend" id="ndviLegend" hidden></div>
+      <p class="hint" id="ndviInfo">Recommended. The app searches free Sentinel-2 images (10 m) of the last 14 months, skips cloudy ones and picks the clearest image with full crop cover. Use the timeline to see how the field changes through the season. You can also upload your own NDVI map from a drone.</p>
       <div class="status" id="ndviStatus" hidden></div>
     </section>
 
