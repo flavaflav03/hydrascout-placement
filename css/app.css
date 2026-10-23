@@ -188,3 +188,13 @@ footer { font-size: 12px; color: var(--muted); margin-top: auto; }
   .drawbar-acts { flex-wrap: nowrap; }
   .drawbar-acts button { padding: 6px 8px; font-size: 12px; }
 }
+/* Return on investment */
+.subopts [hidden] { display: none; }
+.roi-out { display: flex; flex-direction: column; gap: 8px; }
+.roi-out p { margin: 0; font-size: 14px; }
+.roi-table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+.roi-table th, .roi-table td { padding: 6px 6px; border-bottom: 1px solid var(--line); text-align: right; }
+.roi-table tbody th { text-align: left; font-weight: 400; color: var(--muted); }
+.roi-table thead th { font-weight: 600; }
+.roi-table td:nth-child(3), .roi-table thead th:nth-child(3) { background: var(--chip); }
+.roi-headline { padding: 10px 12px; border-radius: 6px; background: var(--chip); border-left: 3px solid var(--accent); }

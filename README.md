@@ -14,7 +14,8 @@ It runs entirely in the browser: no server, no account, no API keys. Open `index
 6. **Analysis**: the field is sampled on a grid. Each point gets elevation, slope, relative position (hollow or rise), soil texture, NDVI and pivot coverage. Points are grouped into zones (k-means on standardised variables), and each sensor goes at the most typical point of its zone, away from the field edge and its block's border, the pivot centre, the end of the pivot and tower wheel tracks.
 7. **Map key**: the soil map and NDVI each get a legend on the map. The soil key lists the most likely soil groups at the field (SoilGrids classification) with a plain description, and NDVI values are grouped into bare soil, sparse, moderate, dense and very dense. Tap the map to read the soil and NDVI at a spot.
 8. **Adjusting spots**: drag a numbered pin to move a sensor. Its notes are rewritten for the new point, with warnings when it leaves its zone, comes too close to the field edge or its block's border or sits on a pivot track; "Back to recommended spot" restores it.
-9. **Exports**: a printable placement report (reason for each spot, installation tip, blank fields for install date, depth and serial number), plus GPX, CSV and GeoJSON.
+9. **Return on investment**: the farmer's own figures (irrigated area, water used per year, price of 1 m³, pump flow and power with the price of 1 kWh, or diesel use and price per litre) and HSTI's quote (price per probe, installation, yearly subscription, entered by hand) give the water, pumping hours and money saved per year, the payback in irrigation seasons and the 3-year net gain, for a low / expected / high water saving (10 / 20 / 30% by default). It goes into the report.
+10. **Exports**: a printable placement report (reason for each spot, installation tip, blank fields for install date, depth and serial number), plus GPX, CSV and GeoJSON.
 
 ## Data sources
 
@@ -33,6 +34,7 @@ It runs entirely in the browser: no server, no account, no API keys. Open `index
 - `js/util.js`: helpers, geometry, projections, colour ramps
 - `js/sources.js`: elevation, soil, NDVI file and Sentinel-2 loading
 - `js/analysis.js`: grid, terrain, zoning, spot selection and explanations
+- `js/roi.js`: return on investment (water and pumping savings, payback)
 - `js/report.js`: report and GPX/CSV/GeoJSON exports
 - `js/app.js`: map and UI wiring
 
