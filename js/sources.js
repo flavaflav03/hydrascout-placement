@@ -77,16 +77,18 @@ function sampleRaster(n, lat, lon, radius = 1) {
 }
 
 // Colour image of an NDVI raster clipped to the field, for display as a map overlay.
-function ndviOverlay(n, field) {
+// With `range` ([lo, hi]) colours use a fixed scale, so images from different dates can be compared.
+function ndviOverlay(n, field, range) {
   const ring = field.map(([lat, lon]) => toCrs(n.def, lat, lon));
   const [x0, y0, x1, y1] = n.bbox, rx = (x1 - x0) / n.w, ry = (y1 - y0) / n.h;
   const inside = []; for (let j = 0; j < n.h; j++) for (let i = 0; i < n.w; i++) { const v = n.data[j * n.w + i]; if (!Number.isNaN(v) && inPoly(x0 + (i + 0.5) * rx, y1 - (j + 0.5) * ry, ring)) inside.push(j * n.w + i); }
   if (!inside.length) return null;
   const vals = inside.map((k) => n.data[k]).sort((a, b) => a - b);
-  const lo = vals[Math.floor(vals.length * 0.02)], hi = vals[Math.ceil(vals.length * 0.98) - 1], span = hi - lo || 0.01;
+  const lo = vals[Math.floor(vals.length * 0.02)], hi = vals[Math.ceil(vals.length * 0.98) - 1];
+  const [c0, c1] = range || [lo, hi], span = c1 - c0 || 0.01;
   const cv = document.createElement("canvas"); cv.width = n.w; cv.height = n.h;
   const ctx = cv.getContext("2d"), im = ctx.createImageData(n.w, n.h);
-  for (const k of inside) { const c = ndviRamp((n.data[k] - lo) / span, true); im.data.set([c[0], c[1], c[2], 235], k * 4); }
+  for (const k of inside) { const c = ndviRamp((n.data[k] - c0) / span, true); im.data.set([c[0], c[1], c[2], 235], k * 4); }
   ctx.putImageData(im, 0, 0);
   const corners = [[x0, y0], [x0, y1], [x1, y0], [x1, y1]].map(([x, y]) => fromCrs(n.def, x, y));
   const lats = corners.map((c) => c[0]), lons = corners.map((c) => c[1]);
