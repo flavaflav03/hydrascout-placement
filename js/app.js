@@ -10,22 +10,28 @@ const sat = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Wo
 const places = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19 }).addTo(map);
 const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap contributors" });
 
-// French soil map (INRAE / GIS Sol "carte des sols") from the IGN Géoplateforme. Tries WMTS first and
-// switches to the WMS service if tiles fail to load.
-const SOIL_ATTR = "Carte des sols © INRAE, GIS Sol · IGN Géoplateforme";
-const soilGroup = L.layerGroup();
-const soilWmts = L.tileLayer("https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=INRA.CARTE.SOLS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}", { maxZoom: 19, opacity: 0.65, attribution: SOIL_ATTR });
-const soilWms = L.tileLayer.wms("https://data.geopf.fr/wms-r", { layers: "INRA.CARTE.SOLS", format: "image/png", transparent: true, version: "1.3.0", opacity: 0.65, maxZoom: 19, attribution: SOIL_ATTR });
-let soilOk = 0, soilErr = 0;
-soilWmts.on("tileload", () => soilOk++);
-soilWmts.on("tileerror", () => { if (++soilErr >= 4 && soilOk === 0 && soilGroup.hasLayer(soilWmts)) { soilGroup.removeLayer(soilWmts); soilGroup.addLayer(soilWms); } });
-soilGroup.addLayer(soilWmts);
+// Soil maps from ISRIC SoilGrids (public WMS, 250 m). The French "carte des sols" is not openly served as tiles,
+// so the panel links to it on cartes.gouv.fr instead.
+const SOIL_ATTR = "Soil © ISRIC SoilGrids 2.0 (CC-BY 4.0)";
+const SOIL_MAPS = {
+  wrb: { url: "https://maps.isric.org/mapserv/wrb", layer: "MostProbable" },
+  clay: { url: "https://maps.isric.org/mapserv/clay", layer: "clay_15-30cm_mean" },
+};
+const soilLayers = Object.fromEntries(Object.entries(SOIL_MAPS).map(([k, m]) => [k, L.tileLayer.wms(m.url, { layers: m.layer, styles: "", format: "image/png", transparent: true, version: "1.3.0", opacity: 0.6, maxZoom: 19, attribution: SOIL_ATTR })]));
+function showSoilMap(key) {
+  Object.values(soilLayers).forEach((l) => map.removeLayer(l));
+  const m = SOIL_MAPS[key], lg = $("soilLegend");
+  lg.hidden = !m;
+  if (!m) return;
+  soilLayers[key].addTo(map);
+  lg.src = `${m.url}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetLegendGraphic&LAYER=${m.layer}&FORMAT=image/png&SLD_VERSION=1.1.0`;
+}
+$("soilMap").addEventListener("change", (e) => showSoilMap(e.target.value));
 
 const ndviLayer = L.layerGroup().addTo(map);
-L.control.layers({ Satellite: sat, Map: osm }, { "Place names": places, "Soil map (France)": soilGroup, "NDVI image": ndviLayer }, { position: "topright" }).addTo(map);
+L.control.layers({ Satellite: sat, Map: osm }, { "Place names": places, "Soil type (WRB)": soilLayers.wrb, "Clay content": soilLayers.clay, "NDVI image": ndviLayer }, { position: "topright" }).addTo(map);
 L.control.scale({ imperial: false }).addTo(map);
-map.on("overlayadd overlayremove", (e) => { if (e.layer === soilGroup) $("soilToggle").checked = map.hasLayer(soilGroup); });
-$("soilToggle").addEventListener("change", (e) => (e.target.checked ? soilGroup.addTo(map) : map.removeLayer(soilGroup)));
+map.on("overlayadd overlayremove", () => { $("soilMap").value = Object.keys(soilLayers).find((k) => map.hasLayer(soilLayers[k])) || "off"; });
 
 const fieldLayer = L.layerGroup().addTo(map);
 const draftLayer = L.layerGroup().addTo(map);
@@ -58,19 +64,32 @@ function setField(latlngs, { fit = true, example = false } = {}) {
 }
 
 // ---------- search ----------
+// Searched place or coordinates are marked with a pin (not clickable, so drawing on top of it still works).
+const searchLayer = L.layerGroup().addTo(map);
+const PIN_SVG = '<svg width="30" height="42" viewBox="0 0 30 42" aria-hidden="true"><path d="M15 1C7.3 1 1 7.2 1 14.9 1 25.3 15 41 15 41s14-15.7 14-26.1C29 7.2 22.7 1 15 1z" fill="#d6452f" stroke="#fff" stroke-width="2"/><circle cx="15" cy="15" r="5" fill="#fff"/></svg>';
+function showPin(lat, lon, label) {
+  searchLayer.clearLayers();
+  L.marker([lat, lon], { interactive: false, keyboard: false, zIndexOffset: 1000, icon: L.divIcon({ className: "", html: PIN_SVG, iconSize: [30, 42], iconAnchor: [15, 41], tooltipAnchor: [0, -40] }) })
+    .bindTooltip(escapeHtml(label), { permanent: true, direction: "top", className: "pin-label" }).addTo(searchLayer);
+}
 $("searchForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const q = $("q").value.trim(); if (!q) return;
+  const q = $("q").value.trim(); if (!q) { searchLayer.clearLayers(); return; }
   const m = q.match(/^\s*(-?\d+(?:\.\d+)?)\s*[,; ]\s*(-?\d+(?:\.\d+)?)\s*$/);
-  if (m) { map.setView([+m[1], +m[2]], 16); return; }
+  if (m) {
+    const lat = +m[1], lon = +m[2];
+    if (Math.abs(lat) > 90 || Math.abs(lon) > 180) { setStatus("Coordinates must be latitude, longitude in decimal degrees, e.g. 48.2840, 1.6090.", true); return; }
+    setStatus(""); showPin(lat, lon, `${lat.toFixed(6)}, ${lon.toFixed(6)}`); map.setView([lat, lon], 17); return;
+  }
   try {
     setStatus("Searching…");
     const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`, { headers: { "Accept-Language": navigator.language || "en" } });
     const j = await r.json();
     if (!j.length) { setStatus(`No place found for "${q}". Try a town name or coordinates.`, true); return; }
     setStatus("");
-    const b = j[0].boundingbox.map(Number);
-    map.fitBounds([[b[0], b[2]], [b[1], b[3]]], { maxZoom: 16 });
+    const hit = j[0], lat = +hit.lat, lon = +hit.lon, b = hit.boundingbox.map(Number);
+    showPin(lat, lon, hit.display_name.split(",").slice(0, 3).join(","));
+    map.fitBounds([[b[0], b[2]], [b[1], b[3]]], { maxZoom: 17 });
   } catch (err) { setStatus("Search is unavailable right now. Pan the map by hand or type coordinates.", true); }
 });
 
