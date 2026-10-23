@@ -45,6 +45,16 @@ header p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
   background: var(--accent); color: var(--accent-ink); font-size: 12px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .row > input[type=text] { flex: 1 1 160px; min-width: 0; }
+/* Search with suggestions */
+.search { flex-wrap: nowrap; align-items: flex-start; }
+.search-box { position: relative; flex: 1 1 auto; min-width: 0; }
+.search-box input { width: 100%; }
+.suggest { position: absolute; z-index: 2000; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 4px; list-style: none;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.18); max-height: 320px; overflow-y: auto; }
+.suggest li { padding: 8px 10px; border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.suggest li b { font-weight: 500; }
+.suggest li span { font-size: 12px; color: var(--muted); }
+.suggest li:hover, .suggest li[aria-selected="true"] { background: var(--chip); }
 input[type=text], input[type=number], select {
   font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
 input[type=number] { width: 80px; }
