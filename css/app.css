@@ -161,3 +161,8 @@ footer { font-size: 12px; color: var(--muted); margin-top: auto; }
 .map-key .wms-legend { display: block; background: #fff; border-radius: 4px; padding: 4px; max-width: 100%; }
 .ident { font-size: 14px; line-height: 1.5; }
 @media (max-width: 760px) { .map-key .key-body { max-height: 24vh; } .map-key { font-size: 13px; } }
+
+/* Sensor spots moved by hand */
+.sensor-pin { cursor: grab; }
+.sensor-pin.moved span { border-style: dashed; }
+.sensor.moved h3 .tag { margin-left: 6px; vertical-align: middle; }

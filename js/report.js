@@ -32,10 +32,10 @@ function exportGpx(R, ctx) {
 
 function exportCsv(R, ctx) {
   const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
-  const rows = [["name", "lat", "lon", "zone", "zone_share_pct", "elevation_m", "slope_pct", "clay_pct", "sand_pct", "ndvi", "dist_to_edge_m", "pivot_dist_m", "why", "install_tip"]];
+  const rows = [["name", "lat", "lon", "zone", "zone_share_pct", "elevation_m", "slope_pct", "clay_pct", "sand_pct", "ndvi", "dist_to_edge_m", "pivot_dist_m", "moved_by_hand", "why", "install_tip"]];
   R.sensors.forEach((s) => rows.push([s.name, s.lat.toFixed(7), s.lon.toFixed(7), s.zone + 1, fmt(s.share * 100, 0), fmt(R.T.elev[s.i], 1), fmt(R.T.slope[s.i], 2),
     R.soil ? fmt(R.soil.clay[s.i], 1) : "", R.soil ? fmt(R.soil.sand[s.i], 1) : "", R.ndvi ? fmt(R.ndvi[s.i], 3) : "", fmt(s.edge, 0),
-    R.piv ? fmt(R.piv[s.i].d, 0) : "", q(s.why.join(" ")), q(s.tip || "")]));
+    R.piv ? fmt(R.piv[s.i].d, 0) : "", s.moved ? "yes" : "no", q(s.why.join(" ")), q(s.tip || "")]));
   download(`${fileBase(ctx)}.csv`, "text/csv", "﻿" + rows.map((r) => r.join(",")).join("\n") + "\n");
 }
 
@@ -43,7 +43,7 @@ function exportGeoJson(R, ctx) {
   const ring = ctx.field.concat([ctx.field[0]]).map(([a, b]) => [b, a]);
   const fc = { type: "FeatureCollection", features: [
     { type: "Feature", properties: { kind: "field", name: ctx.fieldName || null, area_ha: +R.ha.toFixed(3), irrigation: irrigationSummary(R.irrigation), ndvi_source: R.ndviInfo ? R.ndviInfo.label : null }, geometry: { type: "Polygon", coordinates: [ring] } },
-    ...R.sensors.map((s) => ({ type: "Feature", properties: { kind: "sensor", name: s.name, zone: s.zone + 1, zone_share: +s.share.toFixed(3), why: s.why, install_tip: s.tip }, geometry: { type: "Point", coordinates: [+s.lon.toFixed(7), +s.lat.toFixed(7)] } })),
+    ...R.sensors.map((s) => ({ type: "Feature", properties: { kind: "sensor", name: s.name, moved_by_hand: !!s.moved, zone: s.zone + 1, zone_share: +s.share.toFixed(3), why: s.why, install_tip: s.tip }, geometry: { type: "Point", coordinates: [+s.lon.toFixed(7), +s.lat.toFixed(7)] } })),
   ] };
   download(`${fileBase(ctx)}.geojson`, "application/geo+json", JSON.stringify(fc, null, 2));
 }
@@ -58,7 +58,7 @@ function fieldSvg(R, ctx) {
   const cells = R.pts.map((p, i) => `<rect x="${X(p.x - h).toFixed(1)}" y="${Y(p.y + h).toFixed(1)}" width="${(2 * h * sc + 0.6).toFixed(1)}" height="${(2 * h * sc + 0.6).toFixed(1)}" fill="${zoneColor(R.lab[i])}" fill-opacity="0.45"/>`).join("");
   let pivot = "";
   if (R.piv && R.irrigation.pivot) { const [cx, cy] = P.fwd(R.irrigation.pivot.lat, R.irrigation.pivot.lon); pivot = `<circle cx="${X(cx)}" cy="${Y(cy)}" r="${R.irrigation.pivot.radius * sc}" fill="none" stroke="#2f7fbf" stroke-width="1.5" stroke-dasharray="6 4"/>`; }
-  const sens = R.sensors.map((s) => { const p = R.pts[s.i]; return `<g><circle cx="${X(p.x)}" cy="${Y(p.y)}" r="11" fill="${zoneColor(s.zone)}" stroke="#fff" stroke-width="2.5"/><text x="${X(p.x)}" y="${Y(p.y) + 4.5}" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">${R.sensors.indexOf(s) + 1}</text></g>`; }).join("");
+  const sens = R.sensors.map((s) => { const [px, py] = P.fwd(s.lat, s.lon); return `<g><circle cx="${X(px)}" cy="${Y(py)}" r="11" fill="${zoneColor(s.zone)}" stroke="#fff" stroke-width="2.5"/><text x="${X(px)}" y="${Y(py) + 4.5}" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">${R.sensors.indexOf(s) + 1}</text></g>`; }).join("");
   const nice = [10, 20, 50, 100, 200, 500, 1000].find((m) => m * sc > 60) || 1000;
   return `<svg viewBox="0 0 ${W} ${H.toFixed(0)}" width="100%" role="img" aria-label="Field plan with sensor positions" style="max-width:${W}px;background:#f3f5f1;border-radius:6px">
     ${cells}${pivot}<polygon points="${ring.map((p) => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" ")}" fill="none" stroke="#1d2a22" stroke-width="2"/>${sens}
@@ -77,7 +77,7 @@ function reportHtml(R, ctx) {
     ["Irrigation", escapeHtml(irrigationSummary(R.irrigation))],
     ["Sensors", `${R.sensors.length}, at least ${R.buffer} m from the field edge where possible`],
   ];
-  const table = R.sensors.map((s) => `<tr><td><b style="color:${zoneColor(s.zone)}">●</b> ${s.name}</td><td>${s.lat.toFixed(6)}</td><td>${s.lon.toFixed(6)}</td><td>${s.zone + 1} (${fmt(s.share * 100, 0)}%)</td><td>${fmt(R.T.elev[s.i], 0)} m</td><td>${R.soil ? fmt(R.soil.clay[s.i], 0) + "%" : "–"}</td><td>${R.ndvi ? fmt(R.ndvi[s.i], 2) : "–"}</td></tr>`).join("");
+  const table = R.sensors.map((s) => `<tr><td><b style="color:${zoneColor(s.zone)}">●</b> ${s.name}${s.moved ? " (moved)" : ""}</td><td>${s.lat.toFixed(6)}</td><td>${s.lon.toFixed(6)}</td><td>${s.zone + 1} (${fmt(s.share * 100, 0)}%)</td><td>${fmt(R.T.elev[s.i], 0)} m</td><td>${R.soil ? fmt(R.soil.clay[s.i], 0) + "%" : "–"}</td><td>${R.ndvi ? fmt(R.ndvi[s.i], 2) : "–"}</td></tr>`).join("");
   const cards = R.sensors.map((s) => `<section class="s"><h3><span style="background:${zoneColor(s.zone)}">${R.sensors.indexOf(s) + 1}</span>${s.name}</h3>
     <p class="mono">${s.lat.toFixed(6)}, ${s.lon.toFixed(6)} · <a href="https://www.google.com/maps/dir/?api=1&destination=${s.lat.toFixed(6)},${s.lon.toFixed(6)}">directions</a></p>
     <p class="lbl">Why here</p><ul>${s.why.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>

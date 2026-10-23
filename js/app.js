@@ -572,18 +572,27 @@ function renderResult() {
   const list = $("sensorList"); list.innerHTML = "";
   R.sensors.forEach((s, n) => {
     const col = zoneColor(s.zone);
-    L.marker([s.lat, s.lon], { icon: L.divIcon({ className: "sensor-pin", html: `<span style="background:${col}">${n + 1}</span>`, iconSize: [30, 30], iconAnchor: [15, 15] }) })
+    // Pins can be dragged to adjust a spot; the notes and every export follow the new position.
+    const mk = L.marker([s.lat, s.lon], { draggable: true, autoPan: true, title: `${s.name}: drag to move`, icon: L.divIcon({ className: `sensor-pin${s.moved ? " moved" : ""}`, html: `<span style="background:${col}">${n + 1}</span>`, iconSize: [30, 30], iconAnchor: [15, 15] }) })
       .bindPopup(`<b>${s.name}</b><br>${s.why.map(escapeHtml).join("<br>")}${s.tip ? `<br><i>${escapeHtml(s.tip)}</i>` : ""}`).addTo(sensorLayer);
-    const card = document.createElement("article"); card.className = "sensor";
+    mk.on("dragend", () => {
+      const ll = mk.getLatLng(), [x, y] = R.G.P.fwd(ll.lat, ll.lng);
+      if (!inPoly(x, y, R.G.poly)) { mk.setLatLng([s.lat, s.lon]); setStatus(`${s.name} must stay inside the field.`, true); return; }
+      moveSensor(R, s, ll.lat, ll.lng); setStatus(`${s.name} moved. Its notes, the report and the exports use the new position.`);
+      renderResult();
+    });
+    const card = document.createElement("article"); card.className = `sensor${s.moved ? " moved" : ""}`;
     const coords = `${s.lat.toFixed(6)}, ${s.lon.toFixed(6)}`;
-    card.innerHTML = `<h3><span class="badge" style="background:${col}">${n + 1}</span>${s.name}</h3>
+    card.innerHTML = `<h3><span class="badge" style="background:${col}">${n + 1}</span>${s.name}${s.moved ? ' <span class="tag">Moved</span>' : ""}</h3>
       <div class="coords">${coords}</div>
       <ul>${s.why.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>
       ${s.tip ? `<p class="hint">Installation: ${escapeHtml(s.tip)}</p>` : ""}
       <div class="row"><button type="button" data-act="zoom">Show</button><button type="button" data-act="copy">Copy coordinates</button>
-      <a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${s.lat.toFixed(6)},${s.lon.toFixed(6)}">Navigate</a></div>`;
+      <a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${s.lat.toFixed(6)},${s.lon.toFixed(6)}">Navigate</a>
+      ${s.moved ? '<button type="button" data-act="reset">Back to recommended spot</button>' : ""}</div>`;
     card.querySelector('[data-act="zoom"]').onclick = () => { map.setView([s.lat, s.lon], Math.max(map.getZoom(), 17)); if (window.innerWidth <= 760) $("mapwrap").scrollIntoView({ behavior: "smooth" }); };
     card.querySelector('[data-act="copy"]').onclick = async (ev) => { try { await navigator.clipboard.writeText(coords); ev.target.textContent = "Copied"; } catch (e) { ev.target.textContent = coords; } };
+    if (s.moved) card.querySelector('[data-act="reset"]').onclick = () => { resetSensor(s); setStatus(`${s.name} is back on the recommended spot.`); renderResult(); };
     list.appendChild(card);
   });
   $("notes").innerHTML = R.notes.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
