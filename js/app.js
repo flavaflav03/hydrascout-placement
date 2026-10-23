@@ -540,9 +540,33 @@ function renderBlocks() {
   sel.disabled = n > 0;
   if (n) sel.value = "auto";
   $("autoOpt").textContent = n ? `One per irrigation block (${n})` : "Auto (by field size)";
-  $("countHint").textContent = n ? `One probe per block drawn in step 4, plus an optional one where a block is clearly uneven.` : "No block map? Pick the number of irrigation blocks here: one probe per block.";
   store.set("hs.blocks", S.blocks);
+  renderNeed();
 }
+// The grower's own block count (step 1) frames the need: one probe per block. It sets the probe count when no
+// block map is drawn, and is checked against the blocks drawn in step 5.
+function askedBlocks() { const v = Math.round(+$("nBlocks").value); return v >= 1 ? Math.min(v, 200) : null; }
+function renderNeed() {
+  const want = askedBlocks(), drawn = S.blocks.length, sel = $("nSensors"), line = $("needLine");
+  if (!drawn) {
+    if (want) {
+      if (![...sel.options].some((o) => o.value === String(want))) sel.add(new Option(String(want), String(want)));
+      sel.value = String(want);
+    } else if (sel.dataset.fromAsk) sel.value = "auto";
+    sel.dataset.fromAsk = want ? "1" : "";
+  }
+  $("countHint").textContent = drawn ? "One probe per block drawn in step 5, plus an optional one where a block is clearly uneven."
+    : want ? `Set from your answer in step 1: one probe per irrigation block. Without a block map the field is split into ${want} zone${want > 1 ? "s" : ""}, one probe each.`
+    : "No block map? Pick the number of irrigation blocks here: one probe per block.";
+  line.hidden = !want;
+  if (!want) return;
+  const probes = `<b>${want} probe${want > 1 ? "s" : ""}</b>, one per block`;
+  line.innerHTML = !drawn ? `You need ${probes}. Outline the area that holds ${want > 1 ? "these blocks" : "the block"} in step 3, then draw ${want > 1 ? "each block" : "it"} in step 5 so every probe lands inside its own block, away from its borders.`
+    : drawn < want ? `You need ${probes}. ${drawn} of ${want} blocks drawn in step 5: draw the others, or the missing blocks get no probe.`
+    : drawn > want ? `${drawn} blocks drawn in step 5, more than the ${want} you gave: the app places <b>${drawn} probes</b>, one per drawn block.`
+    : `You need ${probes}. All ${want} blocks are drawn in step 5.`;
+}
+$("nBlocks").addEventListener("input", () => { store.set("hs.nBlocks", askedBlocks()); clearResult(); renderNeed(); });
 $("blockList").addEventListener("input", (e) => { const i = e.target.dataset.i; if (i == null) return; S.blocks[+i].name = e.target.value.trim() || nextBlockName(); clearResult(); store.set("hs.blocks", S.blocks); blockLayer.getLayers()[+i].setTooltipContent(escapeHtml(S.blocks[+i].name)); });
 $("blockList").addEventListener("click", (e) => { const d = e.target.dataset.del; if (d == null) return; S.blocks.splice(+d, 1); clearResult(); renderBlocks(); });
 $("blockBtn").addEventListener("click", () => setMode(S.mode === "block" ? null : "block"));
@@ -695,7 +719,7 @@ function renderGrid() {
 $("view").addEventListener("change", renderGrid);
 
 // ---------- exports ----------
-const exportCtx = () => ({ field: S.field, fieldName: $("fieldName").value.trim() });
+const exportCtx = () => ({ field: S.field, fieldName: $("fieldName").value.trim(), askedBlocks: askedBlocks() });
 $("dlReport").onclick = () => S.result && openReport(S.result, exportCtx());
 $("dlGpx").onclick = () => S.result && exportGpx(S.result, exportCtx());
 $("dlCsv").onclick = () => S.result && exportCsv(S.result, exportCtx());
@@ -715,6 +739,7 @@ $("dlGeo").onclick = () => S.result && exportGeoJson(S.result, exportCtx());
     irr.pivotCentre = si.pivotCentre || null;
   }
   updateIrrigation();
+  const nb = store.get("hs.nBlocks"); if (nb >= 1) $("nBlocks").value = nb;
   const sb = store.get("hs.blocks");
   if (Array.isArray(sb)) S.blocks = sb.filter((b) => b && typeof b.name === "string" && Array.isArray(b.ring) && b.ring.length >= 3);
   renderBlocks();

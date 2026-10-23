@@ -126,19 +126,22 @@ function computePlacement(inp) {
   const nb = neighbours(pts, G.spacing * 1.5), buffer = inp.buffer;
   const featDims = spec.map(([key], d) => (key === "x" || key === "y" ? -1 : d)).filter((d) => d >= 0);
   const okPivot = (i) => !piv || !piv[i].avoid;
+  // Distance to the nearest border a probe must keep away from: the field edge and, with irrigation blocks, the
+  // border of the point's own block (probes are never installed close to a block's perimeter).
+  let edgeAt = pts.map((p) => p.edge);
   // Most representative interior point of a set of grid points: away from the edge, the pivot's bad spots and the
   // set's own borders, and closest to its typical conditions.
   function pickSpot(idx) {
     const inSet = new Set(idx), centre = spec.map((_, d) => mean(idx.map((i) => X[i][d])));
     const core = (i) => nb[i].filter(([j]) => inSet.has(j)).length / nb[i].length;
     const tiers = [
-      (i) => pts[i].edge >= buffer && core(i) >= 0.75 && okPivot(i),
-      (i) => pts[i].edge >= buffer && okPivot(i),
-      (i) => pts[i].edge >= buffer,
+      (i) => edgeAt[i] >= buffer && core(i) >= 0.75 && okPivot(i),
+      (i) => edgeAt[i] >= buffer && okPivot(i),
+      (i) => edgeAt[i] >= buffer,
     ];
     let cand = [], tier = 0;
     for (; tier < tiers.length && !cand.length; tier++) cand = idx.filter(tiers[tier]);
-    if (!cand.length) { const me = Math.max(...idx.map((i) => pts[i].edge)); cand = idx.filter((i) => pts[i].edge >= me - 1e-6); tier = 4; }
+    if (!cand.length) { const me = Math.max(...idx.map((i) => edgeAt[i])); cand = idx.filter((i) => edgeAt[i] >= me - 1e-6); tier = 4; }
     const score = (i) => Math.sqrt(featDims.reduce((s, d) => s + (X[i][d] - centre[d]) ** 2, 0)) + 0.5 * (1 - core(i));
     return { i: cand.reduce((b, i) => (score(i) < score(b) ? i : b), cand[0]), tier };
   }
@@ -150,6 +153,7 @@ function computePlacement(inp) {
     const rings = inp.blocks.map((b) => b.ring.map(([a, c]) => G.P.fwd(a, c)));
     blocks = inp.blocks.map((b, bi) => ({ name: b.name, ha: polyArea(rings[bi]) / 10000 }));
     lab = pts.map((p) => rings.findIndex((r) => inPoly(p.x, p.y, r)));
+    edgeAt = pts.map((p, i) => (lab[i] < 0 ? p.edge : Math.min(p.edge, edgeDist(p.x, p.y, rings[lab[i]]))));
     sensors = [];
     blocks.forEach((b, bi) => {
       const idx = lab.map((l, i) => (l === bi ? i : -1)).filter((i) => i >= 0);
@@ -161,6 +165,8 @@ function computePlacement(inp) {
       sensors.push({ ...base, ...pickSpot(split.other), idx: split.other, uneven: split.text, part: "optional", optional: true });
     });
     blocks.forEach((b, bi) => { b.ha = (lab.filter((l) => l === bi).length / pts.length) * ha; }); // the part inside the field
+    for (const s of sensors) if (s.tier === 4) notes.push(`Block ${s.block} is too narrow to keep ${buffer} m from its borders, so its ${s.optional ? "optional " : ""}probe sits at its most central point (${fmt(edgeAt[s.i], 0)} m from the nearest border).`);
+    blocks.forEach((b, bi) => { b.xy = rings[bi]; }); // outline in local metres, for border checks on moved pins
     const outside = lab.filter((l) => l < 0).length / pts.length;
     if (outside > 0.05) notes.push(`${fmt(outside * ha, 1)} ha of the field (${fmt(outside * 100, 0)}%) is outside the drawn irrigation blocks and has no probe.`);
     k = sensors.length;
@@ -195,7 +201,7 @@ function computePlacement(inp) {
     return { main, other, text: `about ${fmt((other.length / idx.length) * 100, 0)}% of the block differs from the rest${parts.length ? `: ${parts.join(", ")}` : ""}` };
   }
 
-  const R = { G, pts, lab, T, soil, ndvi, ndviInfo: ndvi ? inp.ndvi : null, piv, irrigation: inp.irrigation, sensors, ha, notes, buffer, k, blocks };
+  const R = { G, pts, lab, T, soil, ndvi, ndviInfo: ndvi ? inp.ndvi : null, piv, irrigation: inp.irrigation, sensors, ha, notes, buffer, k, blocks, edgeAt };
   describe(R);
   return R;
 }
@@ -251,11 +257,11 @@ function describe(R) {
       if (q.under) why.push(`Under the pivot, ${fmt(q.d, 0)} m from the centre${q.spanNo ? ` (span ${q.spanNo})` : ""}${q.avoid ? "" : ", away from the centre, the end of the pivot and the wheel tracks"}.`);
       else why.push("Outside the pivot circle (not irrigated): useful to compare with the irrigated part.");
     }
-    const away = s.tier <= 2 ? `, at least ${R.buffer} m from the edge` : "";
+    const away = s.tier <= 2 ? `, at least ${R.buffer} m from the ${s.block != null ? "block border and the field edge" : "edge"}` : "";
     if (s.block == null) why.push(`Represents zone ${s.zone + 1}, about ${fmt(s.share * 100, 0)}% of the field (${fmt(s.share * R.ha, 1)} ha). This is the point that best matches the zone's typical conditions${away}.`);
     else if (s.optional) why.push(`Optional second probe for irrigation block ${s.block}: ${s.uneven}. It shows whether that part needs different watering; drop it if one probe per block is enough.`);
     else why.push(`The probe for irrigation block ${s.block} (${fmt(s.blockHa, 1)} ha), at the point that best matches ${s.uneven ? "the main part of the block" : "the block's typical conditions"}${away}.${s.uneven ? ` The block is uneven (${s.uneven}), so an optional second probe is suggested.` : ""}`);
-    s.lat = p.lat; s.lon = p.lon; s.why = why; s.tip = R.piv && !R.piv[s.i].under ? null : tip; s.edge = p.edge; s.name = `HS-${R.sensors.indexOf(s) + 1}`;
+    s.lat = p.lat; s.lon = p.lon; s.why = why; s.tip = R.piv && !R.piv[s.i].under ? null : tip; s.edge = R.edgeAt[s.i]; s.name = `HS-${R.sensors.indexOf(s) + 1}`;
   }
   if (R.summary.flat && R.sensors.length > 1 && !R.soil && !R.ndvi) R.notes.push("This field looks uniform with the available data, so the spots are mainly spread out to cover it. Adding NDVI usually reveals more useful differences.");
   R.notes.push("Elevation comes from a 90 m model and soil from 250 m estimates. They show broad patterns, not plot-level detail. NDVI (10 m) sharpens the result.");
@@ -269,7 +275,9 @@ function moveSensor(R, s, lat, lon) {
   if (!s.orig) s.orig = { i: s.i, lat: s.lat, lon: s.lon, why: s.why, tip: s.tip, edge: s.edge };
   const P = R.G.P, [x, y] = P.fwd(lat, lon), [ox, oy] = P.fwd(s.orig.lat, s.orig.lon);
   const j = R.pts.reduce((b, p, k) => (Math.hypot(p.x - x, p.y - y) < Math.hypot(R.pts[b].x - x, R.pts[b].y - y) ? k : b), 0);
-  const sm = R.summary, E = R.T.elev, eRange = sm.eMax - sm.eMin, edge = edgeDist(x, y, R.G.poly);
+  const sm = R.summary, E = R.T.elev, eRange = sm.eMax - sm.eMin, fieldEdge = edgeDist(x, y, R.G.poly);
+  const ring = R.blocks && s.zone >= 0 && R.blocks[s.zone].xy, inBlock = ring && inPoly(x, y, ring);
+  const blockEdge = inBlock ? edgeDist(x, y, ring) : Infinity, edge = Math.min(fieldEdge, blockEdge);
   const why = [`Moved by hand, ${fmt(Math.hypot(x - ox, y - oy), 0)} m from the recommended spot.`];
   if (!sm.flat) {
     const rel = eRange > 0 ? (E[j] - sm.eMin) / eRange : 0.5;
@@ -290,7 +298,7 @@ function moveSensor(R, s, lat, lon) {
   }
   why.push(R.lab[j] === s.zone ? `Still in ${zoneName(R, s.zone)}, which it represents.`
     : `Warning: this point is ${R.lab[j] < 0 ? "" : "in "}${zoneName(R, R.lab[j])}, so it no longer represents ${zoneName(R, s.zone)}.`);
-  if (edge < R.buffer) why.push(`Warning: only ${fmt(edge, 0)} m from the field edge (${R.buffer} m recommended).`);
+  if (edge < R.buffer) why.push(`Warning: only ${fmt(edge, 0)} m from ${blockEdge < fieldEdge ? `the border of block ${R.blocks[s.zone].name}` : "the field edge"} (${R.buffer} m recommended). Probes are not installed close to a border.`);
   Object.assign(s, { i: j, lat, lon, x, y, edge, why, moved: true, tip: q && !q.under ? null : irrigationTip(R.irrigation) });
 }
 // "zone 2", or "block North" when the spots follow irrigation blocks.

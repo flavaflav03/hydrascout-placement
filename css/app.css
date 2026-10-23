@@ -177,3 +177,5 @@ footer { font-size: 12px; color: var(--muted); margin-top: auto; }
 .block-list button { padding: 6px 9px; font-size: 13px; }
 .block-label { font: 700 13px/1 var(--font-ui); background: rgba(255,255,255,.85); border: 0; box-shadow: none; padding: 3px 6px; }
 .block-label::before { display: none; }
+.need { margin: 0; padding: 10px 12px; border-radius: 6px; background: var(--chip); border-left: 3px solid var(--accent); font-size: 14px; }
+.need b { font-weight: 600; }

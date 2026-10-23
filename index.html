@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
-<link rel="stylesheet" href="css/app.css?v=8">
+<link rel="stylesheet" href="css/app.css?v=9">
 </head>
 <body>
 <div id="app">
@@ -19,7 +19,17 @@
     </header>
 
     <section class="step">
-      <h2><b>1</b> Find the field</h2>
+      <h2><b>1</b> Your irrigation blocks</h2>
+      <div class="opt">
+        <label for="nBlocks">How many irrigation blocks do you have?</label>
+        <input type="number" id="nBlocks" min="1" max="200" step="1" inputmode="numeric" placeholder="e.g. 4">
+      </div>
+      <p class="hint">A block is a part of the farm watered on its own (one valve or one sector). HSTI recommends one probe per block. Not sure? Leave it empty and the app suggests a number from the field size.</p>
+      <p class="need" id="needLine" hidden></p>
+    </section>
+
+    <section class="step">
+      <h2><b>2</b> Find the field</h2>
       <form class="row search" id="searchForm" role="search">
         <div class="search-box">
           <input type="text" id="q" placeholder="Address, town, place or 48.28, 1.61" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="suggest">
@@ -39,7 +49,7 @@
     </section>
 
     <section class="step">
-      <h2><b>2</b> Outline the field</h2>
+      <h2><b>3</b> Outline the field</h2>
       <div class="row">
         <button id="drawBtn" type="button">Draw boundary</button>
         <button id="undoBtn" type="button" hidden>Undo point</button>
@@ -61,7 +71,7 @@
     </section>
 
     <section class="step">
-      <h2><b>3</b> Crop vigour (NDVI)</h2>
+      <h2><b>4</b> Crop vigour (NDVI)</h2>
       <div class="row">
         <button id="sceneBtn" type="button" disabled>Find satellite images</button>
         <label class="btn file">Upload NDVI GeoTIFF<input type="file" id="ndviFile" accept=".tif,.tiff"></label>
@@ -87,7 +97,7 @@
     </section>
 
     <section class="step">
-      <h2><b>4</b> Irrigation <span class="tag">optional</span></h2>
+      <h2><b>5</b> Irrigation <span class="tag">optional</span></h2>
       <div class="opt">
         <label for="irrType">Irrigation equipment</label>
         <select id="irrType">
@@ -122,11 +132,11 @@
         <label class="btn file">Import blocks<input type="file" id="blockFile" accept=".geojson,.json,.kml"></label>
       </div>
       <ul class="block-list" id="blockList" hidden></ul>
-      <p class="hint">HSTI rule: one probe per irrigation block (each part of the field watered on its own). Draw or import the blocks and step 5 puts one probe in each. A block with clearly different parts gets an optional second probe.</p>
+      <p class="hint">HSTI rule: one probe per irrigation block (each part of the field watered on its own). Draw or import the blocks and step 6 puts one probe in each, away from the block borders. A block with clearly different parts gets an optional second probe.</p>
     </section>
 
     <section class="step">
-      <h2><b>5</b> Sensor spots</h2>
+      <h2><b>6</b> Sensor spots</h2>
       <div class="opt">
         <label for="nSensors">Number of sensors</label>
         <select id="nSensors">
@@ -134,7 +144,7 @@
           <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
           <option>6</option><option>7</option><option>8</option><option>10</option><option>12</option>
         </select>
-        <label for="buffer">Keep away from field edge (m)</label>
+        <label for="buffer">Keep away from field and block borders (m)</label>
         <input type="number" id="buffer" value="20" min="0" max="200" step="5">
       </div>
       <p class="hint" id="countHint">No block map? Pick the number of irrigation blocks here: one probe per block.</p>
@@ -143,7 +153,7 @@
     </section>
 
     <section class="step" id="results" hidden>
-      <h2><b>6</b> Recommended spots</h2>
+      <h2><b>7</b> Recommended spots</h2>
       <dl class="summary" id="summary"></dl>
       <div class="opt">
         <label for="view">Show on map</label>
@@ -174,10 +184,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.2/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
-<script src="js/util.js?v=8"></script>
-<script src="js/sources.js?v=8"></script>
-<script src="js/analysis.js?v=8"></script>
-<script src="js/report.js?v=8"></script>
-<script src="js/app.js?v=8"></script>
+<script src="js/util.js?v=9"></script>
+<script src="js/sources.js?v=9"></script>
+<script src="js/analysis.js?v=9"></script>
+<script src="js/report.js?v=9"></script>
+<script src="js/app.js?v=9"></script>
 </body>
 </html>
