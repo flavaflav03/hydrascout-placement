@@ -1,0 +1,343 @@
+"use strict";
+// UI wiring: map, field drawing/import, NDVI, irrigation inputs, analysis run and results.
+
+function setStatus(msg, err = false, id = "status") { const s = $(id); s.hidden = !msg; s.textContent = msg || ""; s.classList.toggle("err", err); }
+const setNdviStatus = (msg, err) => setStatus(msg, err, "ndviStatus");
+
+// ---------- map ----------
+const map = L.map("map", { zoomControl: true }).setView([46.6, 2.4], 6);
+const sat = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, attribution: "Imagery © Esri, Maxar, Earthstar Geographics" }).addTo(map);
+const places = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19 }).addTo(map);
+const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap contributors" });
+
+// French soil map (INRAE / GIS Sol "carte des sols") from the IGN Géoplateforme. Tries WMTS first and
+// switches to the WMS service if tiles fail to load.
+const SOIL_ATTR = "Carte des sols © INRAE, GIS Sol · IGN Géoplateforme";
+const soilGroup = L.layerGroup();
+const soilWmts = L.tileLayer("https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=INRA.CARTE.SOLS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}", { maxZoom: 19, opacity: 0.65, attribution: SOIL_ATTR });
+const soilWms = L.tileLayer.wms("https://data.geopf.fr/wms-r", { layers: "INRA.CARTE.SOLS", format: "image/png", transparent: true, version: "1.3.0", opacity: 0.65, maxZoom: 19, attribution: SOIL_ATTR });
+let soilOk = 0, soilErr = 0;
+soilWmts.on("tileload", () => soilOk++);
+soilWmts.on("tileerror", () => { if (++soilErr >= 4 && soilOk === 0 && soilGroup.hasLayer(soilWmts)) { soilGroup.removeLayer(soilWmts); soilGroup.addLayer(soilWms); } });
+soilGroup.addLayer(soilWmts);
+
+const ndviLayer = L.layerGroup().addTo(map);
+L.control.layers({ Satellite: sat, Map: osm }, { "Place names": places, "Soil map (France)": soilGroup, "NDVI image": ndviLayer }, { position: "topright" }).addTo(map);
+L.control.scale({ imperial: false }).addTo(map);
+map.on("overlayadd overlayremove", (e) => { if (e.layer === soilGroup) $("soilToggle").checked = map.hasLayer(soilGroup); });
+$("soilToggle").addEventListener("change", (e) => (e.target.checked ? soilGroup.addTo(map) : map.removeLayer(soilGroup)));
+
+const fieldLayer = L.layerGroup().addTo(map);
+const draftLayer = L.layerGroup().addTo(map);
+const pivotLayer = L.layerGroup().addTo(map);
+const gridLayer = L.layerGroup().addTo(map);
+const sensorLayer = L.layerGroup().addTo(map);
+
+const S = { field: null, isExample: false, mode: null, draft: [], ndvi: null, scenes: [], result: null };
+
+// Example field so the tool opens in a working state (farmland in the Beauce, France).
+const EXAMPLE_FIELD = [[48.2862, 1.6043], [48.2871, 1.6121], [48.2832, 1.6139], [48.2808, 1.6098], [48.2817, 1.6038]];
+
+function clearResult() { S.result = null; gridLayer.clearLayers(); sensorLayer.clearLayers(); $("results").hidden = true; }
+
+function setField(latlngs, { fit = true, example = false } = {}) {
+  S.field = latlngs; S.isExample = example; clearResult();
+  fieldLayer.clearLayers();
+  if (S.ndvi && S.ndvi.source === "sentinel") clearNdvi("The field changed. Search satellite images again for the new boundary.");
+  else if (S.ndvi) showNdvi(S.ndvi);
+  S.scenes = []; $("sceneRow").hidden = true;
+  $("sceneBtn").disabled = !latlngs;
+  if (!latlngs) { $("fieldInfo").textContent = "No field yet."; $("analyzeBtn").disabled = true; return; }
+  const poly = L.polygon(latlngs, { color: "#ffffff", weight: 2.5, fill: false, dashArray: example ? "6 6" : null }).addTo(fieldLayer);
+  if (fit) map.fitBounds(poly.getBounds(), { padding: [30, 30] });
+  const c = centroidLatLng(latlngs);
+  $("fieldInfo").textContent = `${example ? "Example field · " : ""}${fieldAreaHa(latlngs).toFixed(2)} ha · ${latlngs.length} corners · centre ${c[0].toFixed(5)}, ${c[1].toFixed(5)}`;
+  $("soilLink").href = `https://cartes.gouv.fr/explorer-les-cartes/?c=${c[1].toFixed(5)},${c[0].toFixed(5)}&z=15&l=INRA.CARTE.SOLS$GEOPORTAIL:OGC:WMTS(1)&permalink=yes`;
+  $("analyzeBtn").disabled = false;
+  if (!example) store.set("hs.field", latlngs);
+}
+
+// ---------- search ----------
+$("searchForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const q = $("q").value.trim(); if (!q) return;
+  const m = q.match(/^\s*(-?\d+(?:\.\d+)?)\s*[,; ]\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (m) { map.setView([+m[1], +m[2]], 16); return; }
+  try {
+    setStatus("Searching…");
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`, { headers: { "Accept-Language": navigator.language || "en" } });
+    const j = await r.json();
+    if (!j.length) { setStatus(`No place found for "${q}". Try a town name or coordinates.`, true); return; }
+    setStatus("");
+    const b = j[0].boundingbox.map(Number);
+    map.fitBounds([[b[0], b[2]], [b[1], b[3]]], { maxZoom: 16 });
+  } catch (err) { setStatus("Search is unavailable right now. Pan the map by hand or type coordinates.", true); }
+});
+
+// ---------- drawing ----------
+function drawbar(msg) { const d = $("drawbar"); d.hidden = !msg; d.textContent = msg || ""; }
+function renderDraft() {
+  draftLayer.clearLayers();
+  const drawing = S.mode === "draw";
+  if (S.draft.length > 1) L.polyline(S.draft, { color: "#ffd84a", weight: 3 }).addTo(draftLayer);
+  if (S.draft.length > 2) L.polygon(S.draft, { color: "#ffd84a", weight: 0, fillOpacity: 0.15 }).addTo(draftLayer);
+  S.draft.forEach((p, i) => {
+    const mk = L.marker(p, { icon: L.divIcon({ className: "", html: '<div class="vertex-pin"></div>', iconSize: [12, 12], iconAnchor: [6, 6] }) }).addTo(draftLayer);
+    if (i === 0) mk.on("click", (ev) => { L.DomEvent.stopPropagation(ev); finishDraw(); });
+  });
+  $("undoBtn").hidden = !drawing; $("finishBtn").hidden = !drawing; $("finishBtn").disabled = S.draft.length < 3;
+  drawbar(drawing ? (S.draft.length < 3 ? `Tap the map to add corners (${S.draft.length} so far)` : "Tap the first corner or Finish to close the field") : "");
+}
+function setMode(mode) {
+  S.mode = mode; S.draft = [];
+  if (mode) map.doubleClickZoom.disable(); else map.doubleClickZoom.enable();
+  map.getContainer().style.cursor = mode ? "crosshair" : "";
+  $("drawBtn").classList.toggle("active", mode === "draw"); $("drawBtn").textContent = mode === "draw" ? "Cancel" : "Draw boundary";
+  $("pivCentreBtn").classList.toggle("active", mode === "pivot"); $("pivCentreBtn").textContent = mode === "pivot" ? "Cancel" : "Place pivot centre on map";
+  renderDraft();
+  if (mode === "pivot") drawbar("Tap the pivot centre on the map");
+}
+function finishDraw() { if (S.draft.length < 3) return; const f = S.draft.slice(); setMode(null); setField(f, { fit: false }); }
+$("drawBtn").addEventListener("click", () => setMode(S.mode === "draw" ? null : "draw"));
+$("undoBtn").addEventListener("click", () => { S.draft.pop(); renderDraft(); });
+$("finishBtn").addEventListener("click", finishDraw);
+map.on("click", (e) => {
+  if (S.mode === "draw") { S.draft.push([e.latlng.lat, e.latlng.lng]); renderDraft(); }
+  else if (S.mode === "pivot") { irr.pivotCentre = [e.latlng.lat, e.latlng.lng]; setMode(null); updateIrrigation(); }
+});
+
+// ---------- import boundary ----------
+$("importFile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  try {
+    const txt = await f.text(); let ring = null;
+    if (/\.kml$/i.test(f.name) || txt.trim().startsWith("<")) {
+      const doc = new DOMParser().parseFromString(txt, "application/xml");
+      const c = doc.querySelector("Polygon outerBoundaryIs coordinates, Polygon coordinates, LineString coordinates");
+      if (c) ring = c.textContent.trim().split(/\s+/).map((t) => t.split(",").map(Number)).filter((a) => a.length >= 2).map(([lon, lat]) => [lat, lon]);
+      const nm = doc.querySelector("Placemark > name"); if (nm && !$("fieldName").value) $("fieldName").value = nm.textContent.trim();
+    } else {
+      const g = JSON.parse(txt);
+      const feat = g.type === "FeatureCollection" ? g.features.find((ft) => /Polygon/.test(ft.geometry && ft.geometry.type)) : g.type === "Feature" ? g : null;
+      const geom = feat ? feat.geometry : g;
+      if (geom && geom.type === "Polygon") ring = geom.coordinates[0];
+      else if (geom && geom.type === "MultiPolygon") ring = geom.coordinates[0][0];
+      if (ring) ring = ring.map(([lon, lat]) => [lat, lon]);
+      const nm = feat && feat.properties && (feat.properties.name || feat.properties.nom); if (nm && !$("fieldName").value) $("fieldName").value = nm;
+    }
+    if (!ring || ring.length < 3) throw new Error("no polygon");
+    const a = ring[0], b = ring[ring.length - 1]; if (a[0] === b[0] && a[1] === b[1]) ring.pop();
+    setMode(null); setField(ring); setStatus("");
+  } catch (err) { setStatus("Could not read a field boundary from that file. Use a GeoJSON or KML file containing one polygon in WGS84 (lat/lon).", true); }
+});
+$("fieldName").addEventListener("input", (e) => store.set("hs.fieldName", e.target.value));
+
+// ---------- NDVI ----------
+function showNdvi(nd) {
+  ndviLayer.clearLayers();
+  const ov = S.field ? ndviOverlay(nd, S.field) : null;
+  if (ov) L.imageOverlay(ov.url, ov.bounds, { opacity: 0.9, interactive: false }).addTo(ndviLayer);
+  $("ndviMeta").hidden = false;
+  $("ndviMeta").textContent = ov ? `${nd.label} · field NDVI ${fmt(ov.lo, 2)} to ${fmt(ov.hi, 2)}, average ${fmt(ov.mean, 2)}` : `${nd.label} · does not cover this field`;
+}
+function setNdvi(nd) { S.ndvi = nd; $("ndviClear").hidden = false; showNdvi(nd); if (S.result) setNdviStatus("NDVI updated. Run “Find sensor spots” again to use it."); }
+function clearNdvi(msg) {
+  S.ndvi = null; ndviLayer.clearLayers(); $("ndviClear").hidden = true; $("ndviMeta").hidden = true;
+  if (msg) setNdviStatus(msg);
+}
+$("ndviClear").addEventListener("click", () => { clearNdvi("NDVI removed. The analysis will use terrain and soil only."); $("sceneRow").hidden = true; });
+
+$("ndviFile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  try {
+    setNdviStatus("Reading NDVI image…");
+    const nd = await readNdviFile(f);
+    $("sceneRow").hidden = true; setNdviStatus(nd.bands > 1 ? "The file has several bands: band 1 is used as NDVI." : "");
+    setNdvi(nd);
+  } catch (err) {
+    setNdviStatus(`Could not read that NDVI image: ${err.message}. Export a single-band GeoTIFF in WGS84 (EPSG:4326), Web Mercator, UTM or Lambert-93.`, true);
+  }
+});
+
+async function loadScene(sc) {
+  setNdviStatus(`Computing NDVI from the ${sc.date} image…`);
+  try { const nd = await Sentinel.ndvi(sc, S.field); setNdvi(nd); setNdviStatus(""); }
+  catch (err) { console.error(err); setNdviStatus(`Could not load the ${sc.date} image (${err.message}). Pick another date.`, true); }
+}
+$("sceneBtn").addEventListener("click", async () => {
+  if (!S.field) return;
+  const btn = $("sceneBtn"); btn.disabled = true;
+  try {
+    setNdviStatus("Searching Sentinel-2 images of the last 14 months…");
+    const scenes = await Sentinel.search(S.field);
+    if (!scenes.length) { setNdviStatus("No usable Sentinel-2 image found for this field. Upload an NDVI GeoTIFF instead.", true); return; }
+    // Check the clouds over the field itself for the least cloudy scenes, a few at a time.
+    const cands = scenes.slice().sort((a, b) => a.cloud - b.cloud).slice(0, 14);
+    let done = 0;
+    const check = async (sc) => { try { Object.assign(sc, await Sentinel.checkScene(sc, S.field)); } catch (err) { sc.clear = null; console.warn(err); } setNdviStatus(`Checking clouds over the field… ${++done}/${cands.length}`); };
+    for (let i = 0; i < cands.length; i += 4) await Promise.all(cands.slice(i, i + 4).map(check));
+    let clear = cands.filter((c) => c.clear >= 0.97);
+    if (!clear.length) clear = cands.filter((c) => c.clear >= 0.85);
+    if (!clear.length) { setNdviStatus("All recent images are cloudy over this field. Upload an NDVI GeoTIFF instead, or try again later.", true); return; }
+    // Prefer full crop cover; among those, the most recent image.
+    const maxVeg = Math.max(...clear.map((c) => c.veg));
+    const best = clear.filter((c) => c.veg >= maxVeg - 0.05).sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+    S.scenes = clear.sort((a, b) => (a.date < b.date ? 1 : -1));
+    $("sceneSel").innerHTML = S.scenes.map((c, i) => `<option value="${i}">${c.date} · ${fmt(c.veg * 100, 0)}% green cover${c === best ? " · recommended" : ""}</option>`).join("");
+    $("sceneSel").value = S.scenes.indexOf(best); $("sceneRow").hidden = false;
+    await loadScene(best);
+  } catch (err) {
+    console.error(err); setNdviStatus("Could not reach the Sentinel-2 catalogue. Check your connection and try again, or upload an NDVI GeoTIFF.", true);
+  } finally { btn.disabled = false; }
+});
+$("sceneSel").addEventListener("change", (e) => loadScene(S.scenes[+e.target.value]));
+
+// ---------- irrigation ----------
+const irr = { pivotCentre: null };
+function readIrrigation() {
+  const type = $("irrType").value, num = (id) => { const v = parseFloat($(id).value); return Number.isFinite(v) && v > 0 ? v : null; };
+  const out = { type, notes: $("irrNotes").value.trim() || null };
+  if (type === "drip") Object.assign(out, { emitter: num("dripEmitter"), lineSpacing: num("dripLine"), flow: num("dripFlow") });
+  if (type === "micro" || type === "sprinkler") out.spacing = num("sprSpacing");
+  if (type === "pivot" || type === "linear") out.pivot = { radius: num("pivRadius"), span: num("pivSpan"), lat: irr.pivotCentre && type === "pivot" ? irr.pivotCentre[0] : null, lon: irr.pivotCentre && type === "pivot" ? irr.pivotCentre[1] : null };
+  return out;
+}
+function updateIrrigation() {
+  const t = $("irrType").value;
+  $("irrDrip").hidden = t !== "drip"; $("irrSprinkler").hidden = !(t === "micro" || t === "sprinkler");
+  $("irrPivot").hidden = !(t === "pivot" || t === "linear"); $("pivCentreRow").hidden = t !== "pivot";
+  $("pivRadiusLbl").textContent = t === "pivot" ? "Pivot radius (length)" : "Machine length";
+  $("irrNotes").hidden = t === "none";
+  pivotLayer.clearLayers();
+  const R = parseFloat($("pivRadius").value);
+  if (t === "pivot" && irr.pivotCentre) {
+    const mk = L.marker(irr.pivotCentre, { draggable: true, icon: L.divIcon({ className: "", html: '<div class="vertex-pin" style="border-color:#2f7fbf"></div>', iconSize: [12, 12], iconAnchor: [6, 6] }) }).addTo(pivotLayer);
+    mk.on("dragend", () => { const p = mk.getLatLng(); irr.pivotCentre = [p.lat, p.lng]; updateIrrigation(); });
+    if (R > 0) L.circle(irr.pivotCentre, { radius: R, color: "#2f7fbf", weight: 2, dashArray: "6 5", fill: false, interactive: false }).addTo(pivotLayer);
+    $("pivCentreInfo").textContent = `Centre ${irr.pivotCentre[0].toFixed(5)}, ${irr.pivotCentre[1].toFixed(5)}${R > 0 ? "" : " · enter the radius"}`;
+  } else if (t === "pivot") $("pivCentreInfo").textContent = "Not placed yet.";
+  if (S.mode === "pivot" && t !== "pivot") setMode(null);
+  store.set("hs.irrigation", { ...readIrrigation(), pivotCentre: irr.pivotCentre });
+}
+["irrType", "dripEmitter", "dripLine", "dripFlow", "sprSpacing", "pivRadius", "pivSpan", "irrNotes"].forEach((id) => $(id).addEventListener(id === "irrType" ? "change" : "input", updateIrrigation));
+$("pivCentreBtn").addEventListener("click", () => setMode(S.mode === "pivot" ? null : "pivot"));
+
+// ---------- analysis ----------
+async function analyze() {
+  if (!S.field) return;
+  const btn = $("analyzeBtn"); btn.disabled = true;
+  try {
+    const G = buildGrid(S.field), ha = G.area / 10000, pts = G.pts;
+    if (pts.length < 3) throw new Error("The field is too small to analyse. Draw a larger boundary.");
+    const irrigation = readIrrigation();
+    if (irrigation.type === "pivot" && (!irrigation.pivot.radius || irrigation.pivot.lat == null)) setStatus("Pivot centre or radius missing: the pivot is ignored for placement.");
+
+    setStatus(`Loading elevation for ${pts.length} points…`);
+    const elev = await fetchElevation(pts, (n) => setStatus(`Loading elevation… ${n}/${pts.length}`));
+
+    // Soil: SoilGrids has a 250 m grid and a low rate limit, so sample a few spread-out points and interpolate.
+    const soilIdx = [pts.reduce((bi, p, i) => (Math.hypot(p.x, p.y) < Math.hypot(pts[bi].x, pts[bi].y) ? i : bi), 0)];
+    const extra = ha > 40 ? 3 : ha > 12 ? 2 : 0;
+    while (soilIdx.length < 1 + extra) { let bi = 0, bd = -1; pts.forEach((p, i) => { const d = Math.min(...soilIdx.map((j) => Math.hypot(p.x - pts[j].x, p.y - pts[j].y))) * Math.min(1, p.edge / 30); if (d > bd) { bd = d; bi = i; } }); soilIdx.push(bi); }
+    const soilSamples = [];
+    for (let s = 0; s < soilIdx.length; s++) {
+      setStatus(`Loading soil data… ${s + 1}/${soilIdx.length}`);
+      try { const v = await fetchSoil(pts[soilIdx[s]].lat, pts[soilIdx[s]].lon); if (v) soilSamples.push({ p: pts[soilIdx[s]], v }); } catch (err) { console.warn(err); }
+      if (s < soilIdx.length - 1) await sleep(1200);
+    }
+
+    S.result = computePlacement({ G, elev, soilSamples, ndvi: S.ndvi, irrigation, request: $("nSensors").value, buffer: Math.max(0, +$("buffer").value || 0) });
+    renderResult();
+    setStatus("");
+  } catch (err) {
+    console.error(err);
+    setStatus(/fetch|network|Failed/i.test(err.message) ? "Could not reach the elevation service. Check your internet connection and try again." : err.message, true);
+  } finally { btn.disabled = false; }
+}
+$("analyzeBtn").addEventListener("click", analyze);
+
+// ---------- rendering ----------
+const VIEWS = {
+  zones: { label: "Zones" },
+  elev: { label: "Elevation (m)", get: (R) => R.T.elev, d: 1 },
+  slope: { label: "Slope (%)", get: (R) => R.T.slope, d: 1 },
+  tpi: { label: "Hollows ↔ rises (m)", get: (R) => R.T.tpi, d: 2, invert: true },
+  clay: { label: "Clay (%)", get: (R) => R.soil && R.soil.clay, d: 0 },
+  ndvi: { label: "NDVI", get: (R) => R.ndvi, d: 2, ndvi: true },
+};
+function renderResult() {
+  const R = S.result; if (!R) return;
+  $("results").hidden = false;
+  const sm = R.summary;
+  $("summary").innerHTML = [
+    ["Area", `${fmt(R.ha, 2)} ha`], ["Sensors", `${R.sensors.length}`],
+    ["Elevation", `${fmt(sm.eMin, 0)}–${fmt(sm.eMax, 0)} m`], ["Mean slope", `${fmt(sm.fSlope, 1)} %`],
+    ["Soil", R.soil ? `${fmt(sm.fClay, 0)} % clay` : "not loaded"], ["NDVI", R.ndvi ? `${fmt(sm.fNdvi, 2)}${R.ndviInfo.date ? ` (${R.ndviInfo.date})` : ""}` : "not used"],
+  ].map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("");
+  const sel = $("view"), cur = sel.value || "zones";
+  sel.innerHTML = Object.entries(VIEWS).filter(([k, v]) => k === "zones" || v.get(R)).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join("");
+  sel.value = [...sel.options].some((o) => o.value === cur) ? cur : "zones";
+  renderGrid();
+  sensorLayer.clearLayers();
+  const list = $("sensorList"); list.innerHTML = "";
+  R.sensors.forEach((s, n) => {
+    const col = zoneColor(s.zone);
+    L.marker([s.lat, s.lon], { icon: L.divIcon({ className: "sensor-pin", html: `<span style="background:${col}">${n + 1}</span>`, iconSize: [30, 30], iconAnchor: [15, 15] }) })
+      .bindPopup(`<b>${s.name}</b><br>${s.why.map(escapeHtml).join("<br>")}${s.tip ? `<br><i>${escapeHtml(s.tip)}</i>` : ""}`).addTo(sensorLayer);
+    const card = document.createElement("article"); card.className = "sensor";
+    const coords = `${s.lat.toFixed(6)}, ${s.lon.toFixed(6)}`;
+    card.innerHTML = `<h3><span class="badge" style="background:${col}">${n + 1}</span>${s.name}</h3>
+      <div class="coords">${coords}</div>
+      <ul>${s.why.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>
+      ${s.tip ? `<p class="hint">Installation: ${escapeHtml(s.tip)}</p>` : ""}
+      <div class="row"><button type="button" data-act="zoom">Show</button><button type="button" data-act="copy">Copy coordinates</button>
+      <a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${s.lat.toFixed(6)},${s.lon.toFixed(6)}">Navigate</a></div>`;
+    card.querySelector('[data-act="zoom"]').onclick = () => { map.setView([s.lat, s.lon], Math.max(map.getZoom(), 17)); if (window.innerWidth <= 760) $("mapwrap").scrollIntoView({ behavior: "smooth" }); };
+    card.querySelector('[data-act="copy"]').onclick = async (ev) => { try { await navigator.clipboard.writeText(coords); ev.target.textContent = "Copied"; } catch (e) { ev.target.textContent = coords; } };
+    list.appendChild(card);
+  });
+  $("notes").innerHTML = R.notes.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
+}
+function renderGrid() {
+  const R = S.result; gridLayer.clearLayers(); if (!R) return;
+  const v = $("view").value || "zones", h = R.G.spacing / 2, lg = $("legend");
+  let color;
+  if (v === "zones") {
+    color = (i) => zoneColor(R.lab[i]);
+    lg.innerHTML = `<div class="row">${R.sensors.map((s) => `<span class="row" style="gap:4px"><span class="badge" style="background:${zoneColor(s.zone)};width:14px;min-width:14px;height:14px;border-width:1px"></span>Zone ${s.zone + 1} · ${fmt(s.share * 100, 0)}%</span>`).join("")}</div>`;
+  } else {
+    const V = VIEWS[v], a = V.get(R), [lo, hi] = minMax(a), span = hi - lo || 1;
+    const f = V.ndvi ? (t) => ndviRamp(t) : (t) => ramp(V.invert ? 1 - t : t);
+    color = (i) => f((a[i] - lo) / span);
+    const grad = Array.from({ length: 11 }, (_, i) => f(i / 10)).join(",");
+    lg.innerHTML = `<div class="ramp" style="background:linear-gradient(90deg,${grad})"></div><div class="ends"><span>${fmt(lo, V.d)}</span><span>${V.label}</span><span>${fmt(hi, V.d)}</span></div>`;
+  }
+  R.pts.forEach((p, i) => {
+    const a = R.G.P.inv(p.x - h, p.y - h), b = R.G.P.inv(p.x + h, p.y + h);
+    L.rectangle([a, b], { stroke: false, fillColor: color(i), fillOpacity: 0.5, interactive: false }).addTo(gridLayer);
+  });
+}
+$("view").addEventListener("change", renderGrid);
+
+// ---------- exports ----------
+const exportCtx = () => ({ field: S.field, fieldName: $("fieldName").value.trim() });
+$("dlReport").onclick = () => S.result && openReport(S.result, exportCtx());
+$("dlGpx").onclick = () => S.result && exportGpx(S.result, exportCtx());
+$("dlCsv").onclick = () => S.result && exportCsv(S.result, exportCtx());
+$("dlGeo").onclick = () => S.result && exportGeoJson(S.result, exportCtx());
+
+// ---------- start ----------
+(function start() {
+  const saved = store.get("hs.field");
+  if (Array.isArray(saved) && saved.length >= 3) setField(saved); else setField(EXAMPLE_FIELD, { example: true });
+  $("fieldName").value = store.get("hs.fieldName") || "";
+  const si = store.get("hs.irrigation");
+  if (si && si.type) {
+    $("irrType").value = si.type; $("irrNotes").value = si.notes || "";
+    if (si.emitter) $("dripEmitter").value = si.emitter; if (si.lineSpacing) $("dripLine").value = si.lineSpacing; if (si.flow) $("dripFlow").value = si.flow;
+    if (si.spacing) $("sprSpacing").value = si.spacing;
+    if (si.pivot) { if (si.pivot.radius) $("pivRadius").value = si.pivot.radius; if (si.pivot.span) $("pivSpan").value = si.pivot.span; }
+    irr.pivotCentre = si.pivotCentre || null;
+  }
+  updateIrrigation();
+})();
