@@ -27,6 +27,51 @@ async function fetchSoil(lat, lon) {
   return out.clay == null ? null : out;
 }
 
+// WRB reference soil groups as drawn by the SoilGrids "MostProbable" map, with a one-line note for farmers.
+const WRB = {
+  Acrisols: ["#fe9132", "acid, weathered, clay-enriched subsoil"],
+  Albeluvisols: ["#919454", "bleached tongues into a clay subsoil, often wet"],
+  Alisols: ["#faf7bd", "acid, clay-enriched subsoil"],
+  Andosols: ["#f43533", "volcanic, light and porous"],
+  Arenosols: ["#f9d4a7", "sandy, drains fast"],
+  Calcisols: ["#ffef3e", "chalky (lime-rich) subsoil"],
+  Cambisols: ["#ffc968", "young, moderately developed"],
+  Chernozems: ["#e1c345", "deep, black, very fertile"],
+  Cryosols: ["#6a5e85", "permafrost"],
+  Durisols: ["#eee3ba", "hard silica pan"],
+  Ferralsols: ["#fd7e37", "deeply weathered tropical soil"],
+  Fluvisols: ["#02a4e8", "river or sea deposits, layered"],
+  Gleysols: ["#8785ae", "waterlogged by groundwater"],
+  Gypsisols: ["#fcf7a3", "gypsum-rich"],
+  Histosols: ["#807e7f", "peat, organic"],
+  Kastanozems: ["#c68b77", "dark topsoil, dry climate"],
+  Leptosols: ["#cfd0d2", "shallow over rock or very stony"],
+  Lixisols: ["#fdb5b8", "clay-enriched subsoil, low activity clays"],
+  Luvisols: ["#fa797c", "clay-enriched subsoil, fertile"],
+  Nitisols: ["#fd977b", "deep red clay, well structured"],
+  Phaeozems: ["#b75e4a", "dark, humus-rich, fertile"],
+  Planosols: ["#fb8a53", "abrupt clay layer, water perches above it"],
+  Plinthosols: ["#680f38", "iron-rich layer that hardens"],
+  Podzols: ["#00a75e", "acid, sandy, leached"],
+  Regosols: ["#ffdfaa", "weakly developed, loose material"],
+  Solonchaks: ["#f43087", "salty"],
+  Solonetz: ["#f6c6dd", "sodic, dense clay subsoil"],
+  Stagnosols: ["#10b7e4", "perched water, slow drainage"],
+  Umbrisols: ["#518477", "acid, dark topsoil"],
+  Vertisols: ["#984b6f", "heavy clay, cracks when dry"],
+};
+
+// Most probable WRB soil groups at a point, e.g. [{ name: "Luvisols", p: 34 }, …]. SoilGrids allows about 5 calls a minute.
+async function fetchWrb(lat, lon, n = 4) {
+  const r = await fetch(`https://rest.isric.org/soilgrids/v2.0/classification/query?lon=${lon.toFixed(5)}&lat=${lat.toFixed(5)}&number_classes=${n}`);
+  if (r.status === 429) throw new Error("The soil service is busy. Try again in a minute.");
+  if (!r.ok) throw new Error(`soil service answered ${r.status}`);
+  const j = await r.json();
+  const list = (j.wrb_class_probability || []).map(([name, p]) => ({ name, p })).filter((c) => c.p > 0);
+  if (!list.length && j.wrb_class_name) list.push({ name: j.wrb_class_name, p: null });
+  return list.filter((c) => c.name && c.name !== "No information");
+}
+
 function textureClass(sand, silt, clay) {
   const t = sand + silt + clay; sand *= 100 / t; silt *= 100 / t; clay *= 100 / t;
   if (silt + 1.5 * clay < 15) return "sand";
