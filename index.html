@@ -1,0 +1,686 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hydrascout Placement</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+/* Layout: full-height map with a side panel on desktop, bottom sheet on phones. */
+:root {
+  --bg: #f4f6f2;
+  --panel: #ffffff;
+  --ink: #1d2a22;
+  --muted: #5c6b61;
+  --line: #dde3dc;
+  --accent: #2f6b45;      /* crop green */
+  --accent-ink: #ffffff;
+  --soil: #8a5a33;        /* soil brown, secondary */
+  --warn: #a5671a;
+  --chip: #eaf0e8;
+  --font-ui: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-head: "Barlow Semi Condensed", "Barlow", system-ui, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121814; --panel: #19211c; --ink: #e4ebe5; --muted: #9aaa9f; --line: #2c3830;
+    --accent: #5fae7a; --accent-ink: #0d1a12; --soil: #c98f5f; --warn: #e0a24f; --chip: #223028;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121814; --panel: #19211c; --ink: #e4ebe5; --muted: #9aaa9f; --line: #2c3830;
+  --accent: #5fae7a; --accent-ink: #0d1a12; --soil: #c98f5f; --warn: #e0a24f; --chip: #223028;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.45 var(--font-ui); }
+#app { display: grid; grid-template-columns: 380px 1fr; height: 100%; }
+#panel { background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto;
+  padding-block: 18px 32px; padding-left: max(18px, env(safe-area-inset-left, 0px)); padding-right: 18px;
+  display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+#map { height: 100%; min-height: 300px; }
+header h1 { font: 700 24px/1.1 var(--font-head); margin: 0; letter-spacing: .2px; text-wrap: balance; }
+header p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+.step { display: flex; flex-direction: column; gap: 10px; }
+.step h2 { font: 600 13px/1 var(--font-ui); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0;
+  display: flex; align-items: center; gap: 8px; }
+.step h2 b { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--accent); color: var(--accent-ink); font-size: 12px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.row > input[type=text] { flex: 1 1 160px; min-width: 0; }
+input[type=text], input[type=number], select {
+  font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+input[type=number] { width: 80px; }
+button, .btn { font: 500 14px/1 var(--font-ui); color: var(--ink); background: var(--chip); border: 1px solid var(--line);
+  border-radius: 6px; padding: 9px 12px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+button:hover, .btn:hover { border-color: var(--accent); }
+button:focus-visible, .btn:focus-visible, input:focus-visible, select:focus-visible, label.file:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; padding: 12px 16px; font-size: 15px; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+button.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+label.file { position: relative; overflow: hidden; }
+label.file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.hint { color: var(--muted); font-size: 13px; margin: 0; }
+.hint a { color: var(--accent); }
+.field-info { font-family: var(--font-data); font-size: 13px; color: var(--muted); }
+.opt { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; align-items: center; }
+.opt label { font-size: 14px; }
+#status { font-size: 14px; padding: 10px 12px; border-radius: 6px; background: var(--chip); }
+#status.err { color: var(--warn); }
+.summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.summary div { background: var(--bg); border-radius: 6px; padding: 8px 10px; }
+.summary dt { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+.summary dd { margin: 2px 0 0; font: 500 14px/1.3 var(--font-data); font-variant-numeric: tabular-nums; }
+.sensor { border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+.sensor h3 { margin: 0; font: 700 17px/1.2 var(--font-head); display: flex; align-items: center; gap: 8px; }
+.badge { display: inline-grid; place-items: center; min-width: 26px; height: 26px; border-radius: 50%; color: #fff;
+  font: 700 13px/1 var(--font-ui); border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+.sensor .coords { font: 13px var(--font-data); color: var(--muted); }
+.sensor ul { margin: 0; padding-left: 18px; font-size: 14px; }
+.sensor .row button, .sensor .row .btn { padding: 6px 9px; font-size: 13px; }
+.notes { font-size: 13px; color: var(--muted); margin: 0; padding-left: 18px; }
+.legend { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.ramp { height: 10px; border-radius: 3px; }
+.legend .ends { display: flex; justify-content: space-between; font-family: var(--font-data); color: var(--muted); }
+.sensor-pin { background: none; border: none; }
+.sensor-pin span { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: #fff;
+  font: 700 14px/1 var(--font-ui); border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+.vertex-pin { width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 3px solid var(--accent); }
+.leaflet-container { font-family: var(--font-ui); background: var(--bg); }
+#drawbar { position: absolute; z-index: 1000; left: 50%; transform: translateX(-50%);
+  top: calc(12px + env(safe-area-inset-top, 0px)); background: var(--panel); color: var(--ink); border-radius: 8px;
+  padding: 8px 12px; box-shadow: 0 2px 10px rgba(0,0,0,.25); font-size: 14px; max-width: calc(100% - 120px); text-align: center; }
+#mapwrap { position: relative; min-width: 0; }
+footer { font-size: 12px; color: var(--muted); margin-top: auto; }
+@media (max-width: 760px) {
+  #app { grid-template-columns: 1fr; grid-template-rows: 52vh 1fr; }
+  #mapwrap { order: 1; }
+  #panel { order: 2; border-right: 0; border-top: 1px solid var(--line); padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+  #drawbar { max-width: calc(100% - 80px); }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="panel">
+    <header>
+      <h1>Hydrascout Placement</h1>
+      <p>Find the most representative spots in a field to install Hydrascout soil &amp; temperature sensors.</p>
+    </header>
+
+    <section class="step">
+      <h2><b>1</b> Find the field</h2>
+      <form class="row" id="searchForm">
+        <input type="text" id="q" placeholder="Town, address or 48.28, 1.61" autocomplete="off">
+        <button type="submit">Search</button>
+      </form>
+    </section>
+
+    <section class="step">
+      <h2><b>2</b> Outline the field</h2>
+      <div class="row">
+        <button id="drawBtn" type="button">Draw boundary</button>
+        <button id="undoBtn" type="button" hidden>Undo point</button>
+        <button id="finishBtn" type="button" hidden>Finish</button>
+        <label class="btn file">Import file<input type="file" id="importFile" accept=".geojson,.json,.kml"></label>
+      </div>
+      <p class="field-info" id="fieldInfo">No field yet.</p>
+      <p class="hint">Tap the map to place corners, then Finish. You can also import a GeoJSON or KML boundary (e.g. from your farm software or Google Earth).</p>
+    </section>
+
+    <section class="step">
+      <h2><b>3</b> Options</h2>
+      <div class="opt">
+        <label for="nSensors">Number of sensors</label>
+        <select id="nSensors">
+          <option value="auto" selected>Auto (by field size)</option>
+          <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+          <option>6</option><option>7</option><option>8</option><option>10</option><option>12</option>
+        </select>
+        <label for="buffer">Keep away from field edge (m)</label>
+        <input type="number" id="buffer" value="20" min="0" max="200" step="5">
+      </div>
+      <div class="row">
+        <label class="btn file">Add NDVI image (GeoTIFF)<input type="file" id="ndviFile" accept=".tif,.tiff"></label>
+        <button id="ndviClear" type="button" hidden>Remove NDVI</button>
+      </div>
+      <p class="hint" id="ndviInfo">Optional. A single-band NDVI GeoTIFF from a drone flight or from <a href="https://browser.dataspace.copernicus.eu/" target="_blank" rel="noopener">Copernicus Browser</a> (Sentinel-2, export as GeoTIFF). Pick a date with a well-developed crop.</p>
+      <button class="primary" id="analyzeBtn" type="button" disabled>Find sensor spots</button>
+      <div id="status" hidden></div>
+    </section>
+
+    <section class="step" id="results" hidden>
+      <h2><b>4</b> Recommended spots</h2>
+      <dl class="summary" id="summary"></dl>
+      <div class="opt">
+        <label for="view">Show on map</label>
+        <select id="view"></select>
+      </div>
+      <div class="legend" id="legend"></div>
+      <div id="sensorList" class="step"></div>
+      <div class="row">
+        <button type="button" id="dlGpx">Download GPX</button>
+        <button type="button" id="dlCsv">Download CSV</button>
+        <button type="button" id="dlGeo">Download GeoJSON</button>
+      </div>
+      <ul class="notes" id="notes"></ul>
+    </section>
+
+    <footer>Data: elevation Copernicus DEM GLO-90 via Open-Meteo · soil ISRIC SoilGrids 2.0 · imagery Esri. Recommendations are a starting point: check each spot on the ground before installing.</footer>
+  </aside>
+  <div id="mapwrap">
+    <div id="map"></div>
+    <div id="drawbar" hidden></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.2/proj4.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
+<script>
+"use strict";
+// ---------- helpers ----------
+const $ = (id) => document.getElementById(id);
+const ZONE_COLORS = ["#2f7fbf", "#e0a02a", "#4f9e52", "#c4554d", "#8a6bbf", "#2fa39b", "#a8733a", "#d06fa8", "#6d8a1f", "#4a5fc1", "#c98a8a", "#3d3d3d"];
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+};
+const fmt = (v, d = 1) => (v == null || Number.isNaN(v) ? "–" : v.toFixed(d));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function mulberry32(a) { return function () { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+function setStatus(msg, err = false) { const s = $("status"); s.hidden = !msg; s.textContent = msg || ""; s.classList.toggle("err", err); }
+
+// Local metric projection around a reference point (accurate enough at field scale).
+function makeProj(lat0, lon0) {
+  const kx = 111320 * Math.cos((lat0 * Math.PI) / 180), ky = 110540;
+  return { fwd: (lat, lon) => [(lon - lon0) * kx, (lat - lat0) * ky], inv: (x, y) => [lat0 + y / ky, lon0 + x / kx] };
+}
+function polyArea(p) { let a = 0; for (let i = 0, j = p.length - 1; i < p.length; j = i++) a += (p[j][0] + p[i][0]) * (p[j][1] - p[i][1]); return Math.abs(a / 2); }
+function inPoly(x, y, p) { let c = false; for (let i = 0, j = p.length - 1; i < p.length; j = i++) { const [xi, yi] = p[i], [xj, yj] = p[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; }
+function edgeDist(x, y, p) {
+  let m = Infinity;
+  for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
+    const [x1, y1] = p[j], [x2, y2] = p[i], dx = x2 - x1, dy = y2 - y1, L = dx * dx + dy * dy;
+    let t = L ? ((x - x1) * dx + (y - y1) * dy) / L : 0; t = Math.max(0, Math.min(1, t));
+    m = Math.min(m, Math.hypot(x - (x1 + t * dx), y - (y1 + t * dy)));
+  }
+  return m;
+}
+function mean(a) { let s = 0, n = 0; for (const v of a) if (v != null && !Number.isNaN(v)) { s += v; n++; } return n ? s / n : null; }
+function std(a) { const m = mean(a); if (m == null) return 0; let s = 0, n = 0; for (const v of a) if (v != null && !Number.isNaN(v)) { s += (v - m) ** 2; n++; } return Math.sqrt(s / Math.max(1, n)); }
+
+// ---------- map ----------
+const map = L.map("map", { zoomControl: true }).setView([46.6, 2.4], 6);
+const sat = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, attribution: "Imagery © Esri, Maxar, Earthstar Geographics" }).addTo(map);
+const places = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19 }).addTo(map);
+const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap contributors" });
+L.control.layers({ Satellite: sat, Map: osm }, { "Place names": places }, { position: "topright" }).addTo(map);
+L.control.scale({ imperial: false }).addTo(map);
+
+const fieldLayer = L.layerGroup().addTo(map);
+const draftLayer = L.layerGroup().addTo(map);
+const gridLayer = L.layerGroup().addTo(map);
+const sensorLayer = L.layerGroup().addTo(map);
+
+const S = { field: null, isExample: false, drawing: false, draft: [], ndvi: null, result: null };
+
+// Example field so the tool opens in a working state (farmland in the Beauce, France).
+const EXAMPLE_FIELD = [[48.2862, 1.6043], [48.2871, 1.6121], [48.2832, 1.6139], [48.2808, 1.6098], [48.2817, 1.6038]];
+
+function setField(latlngs, { fit = true, example = false } = {}) {
+  S.field = latlngs; S.isExample = example; S.result = null;
+  fieldLayer.clearLayers(); gridLayer.clearLayers(); sensorLayer.clearLayers(); $("results").hidden = true;
+  if (!latlngs) { $("fieldInfo").textContent = "No field yet."; $("analyzeBtn").disabled = true; return; }
+  const poly = L.polygon(latlngs, { color: "#ffffff", weight: 2.5, fill: false, dashArray: example ? "6 6" : null }).addTo(fieldLayer);
+  if (fit) map.fitBounds(poly.getBounds(), { padding: [30, 30] });
+  const c = centroidLatLng(latlngs), P = makeProj(c[0], c[1]);
+  const ha = polyArea(latlngs.map(([a, b]) => P.fwd(a, b))) / 10000;
+  $("fieldInfo").textContent = `${example ? "Example field · " : ""}${ha.toFixed(2)} ha · ${latlngs.length} corners · centre ${c[0].toFixed(5)}, ${c[1].toFixed(5)}`;
+  $("analyzeBtn").disabled = false;
+  if (!example) store.set("hs.field", latlngs);
+}
+function centroidLatLng(ll) { return [mean(ll.map((p) => p[0])), mean(ll.map((p) => p[1]))]; }
+
+// ---------- search ----------
+$("searchForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const q = $("q").value.trim(); if (!q) return;
+  const m = q.match(/^\s*(-?\d+(?:\.\d+)?)\s*[,; ]\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (m) { map.setView([+m[1], +m[2]], 16); return; }
+  try {
+    setStatus("Searching…");
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`, { headers: { "Accept-Language": navigator.language || "en" } });
+    const j = await r.json();
+    if (!j.length) { setStatus(`No place found for "${q}". Try a town name or coordinates.`, true); return; }
+    setStatus("");
+    const b = j[0].boundingbox.map(Number);
+    map.fitBounds([[b[0], b[2]], [b[1], b[3]]], { maxZoom: 16 });
+  } catch (err) { setStatus("Search is unavailable right now. Pan the map by hand or type coordinates.", true); }
+});
+
+// ---------- drawing ----------
+function drawbar(msg) { const d = $("drawbar"); d.hidden = !msg; d.textContent = msg || ""; }
+function renderDraft() {
+  draftLayer.clearLayers();
+  if (!S.draft.length) return;
+  if (S.draft.length > 1) L.polyline(S.draft, { color: "#ffd84a", weight: 3 }).addTo(draftLayer);
+  if (S.draft.length > 2) L.polygon(S.draft, { color: "#ffd84a", weight: 0, fillOpacity: 0.15 }).addTo(draftLayer);
+  S.draft.forEach((p, i) => {
+    const mk = L.marker(p, { icon: L.divIcon({ className: "", html: '<div class="vertex-pin"></div>', iconSize: [12, 12], iconAnchor: [6, 6] }) }).addTo(draftLayer);
+    if (i === 0) mk.on("click", (ev) => { L.DomEvent.stopPropagation(ev); finishDraw(); });
+  });
+  $("undoBtn").hidden = !S.drawing; $("finishBtn").hidden = !S.drawing; $("finishBtn").disabled = S.draft.length < 3;
+  drawbar(S.drawing ? (S.draft.length < 3 ? `Tap the map to add corners (${S.draft.length} so far)` : "Tap the first corner or Finish to close the field") : "");
+}
+function startDraw() {
+  S.drawing = true; S.draft = []; map.doubleClickZoom.disable(); $("drawBtn").classList.add("active"); $("drawBtn").textContent = "Cancel";
+  map.getContainer().style.cursor = "crosshair"; renderDraft();
+}
+function stopDraw() {
+  S.drawing = false; S.draft = []; map.doubleClickZoom.enable(); $("drawBtn").classList.remove("active"); $("drawBtn").textContent = "Draw boundary";
+  map.getContainer().style.cursor = ""; draftLayer.clearLayers(); $("undoBtn").hidden = true; $("finishBtn").hidden = true; drawbar("");
+}
+function finishDraw() { if (S.draft.length < 3) return; const f = S.draft.slice(); stopDraw(); setField(f, { fit: false }); }
+$("drawBtn").addEventListener("click", () => (S.drawing ? stopDraw() : startDraw()));
+$("undoBtn").addEventListener("click", () => { S.draft.pop(); renderDraft(); });
+$("finishBtn").addEventListener("click", finishDraw);
+map.on("click", (e) => { if (!S.drawing) return; S.draft.push([e.latlng.lat, e.latlng.lng]); renderDraft(); });
+
+// ---------- import boundary ----------
+$("importFile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  try {
+    const txt = await f.text(); let ring = null;
+    if (/\.kml$/i.test(f.name) || txt.trim().startsWith("<")) {
+      const doc = new DOMParser().parseFromString(txt, "application/xml");
+      const c = doc.querySelector("Polygon outerBoundaryIs coordinates, Polygon coordinates, LineString coordinates");
+      if (c) ring = c.textContent.trim().split(/\s+/).map((t) => t.split(",").map(Number)).filter((a) => a.length >= 2).map(([lon, lat]) => [lat, lon]);
+    } else {
+      const g = JSON.parse(txt);
+      const geom = g.type === "FeatureCollection" ? (g.features.find((ft) => /Polygon/.test(ft.geometry && ft.geometry.type)) || {}).geometry : g.type === "Feature" ? g.geometry : g;
+      if (geom && geom.type === "Polygon") ring = geom.coordinates[0];
+      else if (geom && geom.type === "MultiPolygon") ring = geom.coordinates[0][0];
+      if (ring) ring = ring.map(([lon, lat]) => [lat, lon]);
+    }
+    if (!ring || ring.length < 3) throw new Error("no polygon");
+    const a = ring[0], b = ring[ring.length - 1]; if (a[0] === b[0] && a[1] === b[1]) ring.pop();
+    stopDraw(); setField(ring); setStatus("");
+  } catch (err) { setStatus("Could not read a field boundary from that file. Use a GeoJSON or KML file containing one polygon in WGS84 (lat/lon).", true); }
+});
+
+// ---------- NDVI GeoTIFF ----------
+function crsDef(epsg) {
+  if (epsg === 4326) return null;
+  if (epsg === 3857 || epsg === 900913) return "EPSG:3857";
+  if (epsg === 2154) return "+proj=lcc +lat_0=46.5 +lon_0=3 +lat_1=49 +lat_2=44 +x_0=700000 +y_0=6600000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs";
+  if (epsg >= 32601 && epsg <= 32660) return `+proj=utm +zone=${epsg - 32600} +datum=WGS84 +units=m +no_defs`;
+  if (epsg >= 32701 && epsg <= 32760) return `+proj=utm +zone=${epsg - 32700} +south +datum=WGS84 +units=m +no_defs`;
+  throw new Error(`Unsupported projection EPSG:${epsg}`);
+}
+$("ndviFile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  try {
+    setStatus("Reading NDVI image…");
+    const tiff = await GeoTIFF.fromArrayBuffer(await f.arrayBuffer());
+    const img = await tiff.getImage();
+    const keys = img.getGeoKeys() || {};
+    const epsg = keys.ProjectedCSTypeGeoKey || keys.GeographicTypeGeoKey || 4326;
+    const def = crsDef(epsg);
+    const [data] = await img.readRasters({ samples: [0] });
+    S.ndvi = { name: f.name, w: img.getWidth(), h: img.getHeight(), bbox: img.getBoundingBox(), data, nodata: img.getGDALNoData(), def, epsg, bands: img.getSamplesPerPixel() };
+    $("ndviInfo").textContent = `NDVI: ${f.name} (${S.ndvi.w}×${S.ndvi.h} px, EPSG:${epsg}${S.ndvi.bands > 1 ? ", using band 1" : ""}). It will be used in the next analysis.`;
+    $("ndviClear").hidden = false; setStatus("");
+    if (S.result) setStatus("NDVI added. Run “Find sensor spots” again to use it.");
+  } catch (err) {
+    S.ndvi = null; setStatus(`Could not read that NDVI image: ${err.message}. Export a single-band GeoTIFF in WGS84 (EPSG:4326), Web Mercator, UTM or Lambert-93.`, true);
+  }
+});
+$("ndviClear").addEventListener("click", () => {
+  S.ndvi = null; $("ndviClear").hidden = true;
+  $("ndviInfo").textContent = "NDVI removed. The analysis will use terrain and soil only.";
+});
+function sampleNdvi(lat, lon) {
+  const n = S.ndvi; let X = lon, Y = lat;
+  if (n.def) [X, Y] = proj4("EPSG:4326", n.def, [lon, lat]);
+  const [x0, y0, x1, y1] = n.bbox;
+  const px = Math.floor(((X - x0) / (x1 - x0)) * n.w), py = Math.floor(((y1 - Y) / (y1 - y0)) * n.h);
+  let s = 0, c = 0;
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const xx = px + dx, yy = py + dy; if (xx < 0 || yy < 0 || xx >= n.w || yy >= n.h) continue;
+    const v = n.data[yy * n.w + xx];
+    if (v == null || Number.isNaN(v) || (n.nodata != null && v === n.nodata)) continue;
+    s += v; c++;
+  }
+  return c ? s / c : null;
+}
+
+// ---------- data sources ----------
+async function fetchElevation(pts, onProgress) {
+  const out = [];
+  for (let i = 0; i < pts.length; i += 100) {
+    const chunk = pts.slice(i, i + 100);
+    const url = `https://api.open-meteo.com/v1/elevation?latitude=${chunk.map((p) => p.lat.toFixed(6)).join(",")}&longitude=${chunk.map((p) => p.lon.toFixed(6)).join(",")}`;
+    const r = await fetch(url); if (!r.ok) throw new Error(`elevation service answered ${r.status}`);
+    const j = await r.json(); out.push(...j.elevation);
+    onProgress && onProgress(Math.min(pts.length, i + 100));
+  }
+  return out;
+}
+async function fetchSoil(lat, lon) {
+  const url = `https://rest.isric.org/soilgrids/v2.0/properties/query?lon=${lon.toFixed(5)}&lat=${lat.toFixed(5)}&property=clay&property=sand&property=silt&property=soc&depth=0-5cm&depth=5-15cm&depth=15-30cm&depth=30-60cm&value=mean`;
+  const r = await fetch(url); if (!r.ok) throw new Error(`soil service answered ${r.status}`);
+  const j = await r.json(); const out = {};
+  for (const layer of j.properties.layers) {
+    const d = (layer.unit_measure && layer.unit_measure.d_factor) || 1; let s = 0, w = 0;
+    for (const dp of layer.depths) { const v = dp.values.mean; if (v == null) continue; const th = dp.range.bottom_depth - dp.range.top_depth; s += (v / d) * th; w += th; }
+    out[layer.name] = w ? s / w : null;
+  }
+  // clay/sand/silt come as g/kg ÷ 10 = %, soc as dg/kg ÷ 10 = g/kg
+  return out.clay == null ? null : out;
+}
+function textureClass(sand, silt, clay) {
+  const t = sand + silt + clay; sand *= 100 / t; silt *= 100 / t; clay *= 100 / t;
+  if (silt + 1.5 * clay < 15) return "sand";
+  if (silt + 2 * clay < 30) return "loamy sand";
+  if ((clay >= 7 && clay < 20 && sand > 52) || (clay < 7 && silt < 50)) return "sandy loam";
+  if (clay >= 7 && clay < 27 && silt >= 28 && silt < 50 && sand <= 52) return "loam";
+  if (silt >= 80 && clay < 12) return "silt";
+  if (silt >= 50 && clay < 27) return "silt loam";
+  if (clay >= 20 && clay < 35 && silt < 28 && sand > 45) return "sandy clay loam";
+  if (clay >= 27 && clay < 40 && sand > 20) return "clay loam";
+  if (clay >= 27 && clay < 40) return "silty clay loam";
+  if (clay >= 35 && sand > 45) return "sandy clay";
+  if (clay >= 40 && silt >= 40) return "silty clay";
+  return clay >= 40 ? "clay" : "loam";
+}
+
+// ---------- analysis ----------
+function buildGrid(field) {
+  const c = centroidLatLng(field), P = makeProj(c[0], c[1]);
+  const poly = field.map(([a, b]) => P.fwd(a, b)), area = polyArea(poly);
+  const xs = poly.map((p) => p[0]), ys = poly.map((p) => p[1]);
+  const bx = [Math.min(...xs), Math.max(...xs)], by = [Math.min(...ys), Math.max(...ys)];
+  let spacing = Math.max(8, Math.min(150, Math.sqrt(area / 220))), pts = [];
+  for (let tries = 0; tries < 4; tries++) {
+    pts = [];
+    for (let y = by[0] + spacing / 2; y < by[1]; y += spacing) for (let x = bx[0] + spacing / 2; x < bx[1]; x += spacing) {
+      if (!inPoly(x, y, poly)) continue;
+      const [lat, lon] = P.inv(x, y); pts.push({ x, y, lat, lon, edge: edgeDist(x, y, poly) });
+    }
+    if (pts.length >= 40 || spacing <= 4) break;
+    spacing /= 1.6;
+  }
+  return { P, poly, area, spacing, pts };
+}
+function neighbours(pts, r) { return pts.map((p) => pts.map((q, j) => [j, Math.hypot(p.x - q.x, p.y - q.y)]).filter(([, d]) => d <= r)); }
+function solve3(A, b) {
+  const m = A.map((r, i) => [...r, b[i]]);
+  for (let i = 0; i < 3; i++) {
+    let mx = i; for (let k = i + 1; k < 3; k++) if (Math.abs(m[k][i]) > Math.abs(m[mx][i])) mx = k;
+    [m[i], m[mx]] = [m[mx], m[i]]; if (Math.abs(m[i][i]) < 1e-9) return null;
+    for (let k = 0; k < 3; k++) if (k !== i) { const f = m[k][i] / m[i][i]; for (let j = i; j < 4; j++) m[k][j] -= f * m[i][j]; }
+  }
+  return [m[0][3] / m[0][0], m[1][3] / m[1][1], m[2][3] / m[2][2]];
+}
+function terrain(G, elev) {
+  const pts = G.pts, sp = G.spacing;
+  const sig = Math.max(sp, 45), nS = neighbours(pts, 2 * sig);
+  const es = pts.map((p, i) => { let s = 0, w = 0; for (const [j, d] of nS[i]) { if (elev[j] == null) continue; const k = Math.exp(-(d * d) / (2 * sig * sig)); s += k * elev[j]; w += k; } return w ? s / w : elev[i]; });
+  const R = Math.max(2 * sp, 90), nR = neighbours(pts, R);
+  const slope = pts.map((p, i) => {
+    const A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], b = [0, 0, 0];
+    for (const [j] of nR[i]) { const v = [pts[j].x - p.x, pts[j].y - p.y, 1]; for (let r = 0; r < 3; r++) { b[r] += v[r] * es[j]; for (let c = 0; c < 3; c++) A[r][c] += v[r] * v[c]; } }
+    const s = nR[i].length >= 4 ? solve3(A, b) : null; return s ? 100 * Math.hypot(s[0], s[1]) : 0;
+  });
+  const nT = neighbours(pts, Math.max(3 * sp, 150));
+  const tpi = pts.map((p, i) => es[i] - mean(nT[i].map(([j]) => es[j])));
+  return { elev: es, slope, tpi };
+}
+function kmeans(X, k, seed) {
+  const rng = mulberry32(seed), n = X.length, dim = X[0].length;
+  const d2 = (a, b) => { let s = 0; for (let i = 0; i < dim; i++) s += (a[i] - b[i]) ** 2; return s; };
+  const C = [X[Math.floor(rng() * n)].slice()];
+  while (C.length < k) {
+    const D = X.map((x) => Math.min(...C.map((c) => d2(x, c)))), tot = D.reduce((a, b) => a + b, 0);
+    let r = rng() * tot, i = 0; while (i < n - 1 && (r -= D[i]) > 0) i++; C.push(X[i].slice());
+  }
+  let lab = new Array(n).fill(0);
+  for (let it = 0; it < 50; it++) {
+    let moved = false;
+    for (let i = 0; i < n; i++) { let best = 0, bd = Infinity; for (let c = 0; c < k; c++) { const d = d2(X[i], C[c]); if (d < bd) { bd = d; best = c; } } if (lab[i] !== best) { lab[i] = best; moved = true; } }
+    for (let c = 0; c < k; c++) { const m = X.filter((_, i) => lab[i] === c); if (m.length) for (let j = 0; j < dim; j++) C[c][j] = mean(m.map((v) => v[j])); }
+    if (!moved) break;
+  }
+  const inertia = X.reduce((s, x, i) => s + d2(x, C[lab[i]]), 0);
+  return { lab, C, inertia };
+}
+function autoCount(ha) { return ha < 3 ? 1 : ha < 8 ? 2 : ha < 20 ? 3 : ha < 40 ? 4 : ha < 80 ? 5 : 6; }
+
+async function analyze() {
+  if (!S.field) return;
+  const btn = $("analyzeBtn"); btn.disabled = true;
+  try {
+    const G = buildGrid(S.field), ha = G.area / 10000, pts = G.pts;
+    if (pts.length < 3) throw new Error("The field is too small to analyse. Draw a larger boundary.");
+    const notes = [];
+
+    setStatus(`Loading elevation for ${pts.length} points…`);
+    const rawElev = await fetchElevation(pts, (n) => setStatus(`Loading elevation… ${n}/${pts.length}`));
+    const T = terrain(G, rawElev);
+
+    // Soil: SoilGrids has a 250 m grid and a low rate limit, so sample a few spread-out points and interpolate.
+    const soilIdx = [pts.reduce((bi, p, i) => (Math.hypot(p.x, p.y) < Math.hypot(pts[bi].x, pts[bi].y) ? i : bi), 0)];
+    const extra = ha > 40 ? 3 : ha > 12 ? 2 : 0;
+    while (soilIdx.length < 1 + extra) { let bi = 0, bd = -1; pts.forEach((p, i) => { const d = Math.min(...soilIdx.map((j) => Math.hypot(p.x - pts[j].x, p.y - pts[j].y))) * Math.min(1, p.edge / 30); if (d > bd) { bd = d; bi = i; } }); soilIdx.push(bi); }
+    const soilSamples = [];
+    for (let s = 0; s < soilIdx.length; s++) {
+      setStatus(`Loading soil data… ${s + 1}/${soilIdx.length}`);
+      try { const v = await fetchSoil(pts[soilIdx[s]].lat, pts[soilIdx[s]].lon); if (v) soilSamples.push({ p: pts[soilIdx[s]], v }); } catch (err) { console.warn(err); }
+      if (s < soilIdx.length - 1) await sleep(1200);
+    }
+    let soil = null;
+    if (soilSamples.length) {
+      soil = {};
+      for (const key of ["clay", "sand", "silt", "soc"]) soil[key] = pts.map((p) => { let s = 0, w = 0; for (const sm of soilSamples) { if (sm.v[key] == null) continue; const d = Math.hypot(p.x - sm.p.x, p.y - sm.p.y); const k = 1 / Math.max(1, d) ** 2; s += k * sm.v[key]; w += k; } return w ? s / w : null; });
+    } else notes.push("Soil data (SoilGrids) could not be loaded, so zones were built without soil. Try again in a minute: the service limits how often it can be called.");
+
+    let ndvi = null;
+    if (S.ndvi) {
+      const raw = pts.map((p) => sampleNdvi(p.lat, p.lon)), cov = raw.filter((v) => v != null).length / pts.length;
+      if (cov < 0.5) notes.push(`The NDVI image covers only ${(cov * 100).toFixed(0)}% of the field, so it was not used. Check that it was exported over this field.`);
+      else {
+        const mx = Math.max(...raw.filter((v) => v != null));
+        const scale = mx > 255 ? (v) => v / 10000 : mx > 1.5 ? (v) => (v / 255) * 2 - 1 : (v) => v;
+        const m = mean(raw); ndvi = raw.map((v) => scale(v == null ? m : v));
+      }
+    }
+
+    // Feature matrix. Each variable is standardised, with a floor on its spread so that tiny
+    // differences on a uniform field do not create artificial zones.
+    const layers = { x: pts.map((p) => p.x), y: pts.map((p) => p.y), elev: T.elev, slope: T.slope, tpi: T.tpi };
+    const spec = [["elev", 1.0, 0.6], ["slope", 0.6, 0.6], ["tpi", 0.8, 0.3], ["x", 0.55, 0], ["y", 0.55, 0]];
+    if (soil) { layers.clay = soil.clay; layers.sand = soil.sand; spec.push(["clay", 1.0, 3], ["sand", 0.6, 4]); }
+    if (ndvi) { layers.ndvi = ndvi; spec.push(["ndvi", 1.6, 0.04]); }
+    const X = pts.map((_, i) => spec.map(([key, w, floor]) => { const a = layers[key], m = mean(a), s = Math.max(std(a), floor, 1e-6); return ((a[i] - m) / s) * w; }));
+
+    const req = $("nSensors").value, k = Math.min(pts.length, req === "auto" ? autoCount(ha) : +req);
+    let best = null; for (let s = 1; s <= 12; s++) { const r = kmeans(X, k, s * 7919); if (!best || r.inertia < best.inertia) best = r; }
+    // Majority filter for tidier, more contiguous zones.
+    const nb = neighbours(pts, G.spacing * 1.5);
+    let lab = best.lab.map((l, i) => { const cnt = {}; for (const [j] of nb[i]) cnt[best.lab[j]] = (cnt[best.lab[j]] || 0) + 1; const top = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0]; return top && top[1] > nb[i].length / 2 ? +top[0] : l; });
+
+    // Order zones by size, then pick the most representative interior point of each one.
+    const buffer = Math.max(0, +$("buffer").value || 0);
+    const zones = [...new Set(lab)].map((z) => ({ z, idx: lab.map((l, i) => (l === z ? i : -1)).filter((i) => i >= 0) })).sort((a, b) => b.idx.length - a.idx.length);
+    const remap = new Map(zones.map((zo, i) => [zo.z, i])); lab = lab.map((l) => remap.get(l));
+    const sensors = zones.map((zo, zi) => {
+      const centre = spec.map((_, d) => mean(zo.idx.map((i) => X[i][d])));
+      const core = (i) => nb[i].filter(([j]) => lab[j] === zi).length / nb[i].length;
+      let cand = zo.idx.filter((i) => pts[i].edge >= buffer && core(i) >= 0.75);
+      let relaxed = false;
+      if (!cand.length) { cand = zo.idx.filter((i) => pts[i].edge >= buffer); relaxed = true; }
+      if (!cand.length) { const me = Math.max(...zo.idx.map((i) => pts[i].edge)); cand = zo.idx.filter((i) => pts[i].edge >= me - 1e-6); relaxed = true; }
+      const featDims = spec.map(([key], d) => (key === "x" || key === "y" ? -1 : d)).filter((d) => d >= 0);
+      const score = (i) => Math.sqrt(featDims.reduce((s, d) => s + (X[i][d] - centre[d]) ** 2, 0)) + 0.5 * (1 - core(i));
+      const pick = cand.reduce((b, i) => (score(i) < score(b) ? i : b), cand[0]);
+      return { zone: zi, i: pick, share: zo.idx.length / pts.length, idx: zo.idx, relaxed };
+    });
+
+    S.result = { G, pts, lab, T, soil, ndvi, sensors, ha, notes, buffer, k };
+    describe(S.result);
+    renderResult();
+    setStatus("");
+  } catch (err) {
+    console.error(err);
+    setStatus(/fetch|network|Failed/i.test(err.message) ? "Could not reach the elevation service. Check your internet connection and try again." : err.message, true);
+  } finally { btn.disabled = false; }
+}
+$("analyzeBtn").addEventListener("click", analyze);
+
+function describe(R) {
+  const all = R.pts.map((_, i) => i);
+  const stat = (arr, idx) => mean(idx.map((i) => arr[i]));
+  const E = R.T.elev, eMin = Math.min(...E), eMax = Math.max(...E), eRange = eMax - eMin;
+  const fSlope = stat(R.T.slope, all), fClay = R.soil ? stat(R.soil.clay, all) : null, fNdvi = R.ndvi ? stat(R.ndvi, all) : null;
+  const flat = eRange < 1.5 && fSlope < 1;
+  R.summary = { eMin, eMax, fSlope, fClay, fNdvi, flat };
+  for (const s of R.sensors) {
+    const p = R.pts[s.i], why = [];
+    const zE = stat(E, s.idx), zS = stat(R.T.slope, s.idx), zT = stat(R.T.tpi, s.idx);
+    if (!flat) {
+      const rel = eRange > 0 ? (zE - eMin) / eRange : 0.5;
+      why.push(`${rel > 0.66 ? "Higher" : rel < 0.33 ? "Lower" : "Middle"} part of the field (around ${fmt(zE, 0)} m), slope ${fmt(zS, 1)}%.`);
+      if (zT < -0.25) why.push("Slight hollow: water tends to collect here, so soil stays wetter for longer.");
+      else if (zT > 0.25) why.push("Slight rise: this area drains and dries out faster.");
+    } else why.push(`Flat terrain (slope ${fmt(zS, 1)}%), so terrain plays little role here.`);
+    if (R.soil) {
+      const cl = R.soil.clay[s.i], sa = R.soil.sand[s.i], si = R.soil.silt[s.i];
+      const tex = textureClass(sa, si, cl);
+      const diff = cl - R.summary.fClay;
+      why.push(`Soil: ${tex} (about ${fmt(cl, 0)}% clay, ${fmt(sa, 0)}% sand)${Math.abs(diff) >= 2 ? `, ${diff > 0 ? "heavier" : "lighter"} than the field average` : ""}.`);
+    }
+    if (R.ndvi) {
+      const zN = stat(R.ndvi, s.idx), d = zN - R.summary.fNdvi;
+      why.push(`Vegetation (NDVI ${fmt(zN, 2)}) ${Math.abs(d) < 0.03 ? "close to the field average" : d > 0 ? "stronger than the field average" : "weaker than the field average"}.`);
+    }
+    why.push(`Represents zone ${s.zone + 1}, about ${fmt(s.share * 100, 0)}% of the field (${fmt(s.share * R.ha, 1)} ha). This is the point that best matches the zone's typical conditions${s.relaxed ? "" : `, at least ${R.buffer} m from the edge`}.`);
+    s.lat = p.lat; s.lon = p.lon; s.why = why; s.edge = p.edge;
+  }
+  if (flat && R.sensors.length > 1 && !R.soil && !R.ndvi) R.notes.push("This field looks uniform with the available data, so the spots are mainly spread out to cover it. Adding an NDVI image usually reveals more useful differences.");
+  R.notes.push("Elevation comes from a 90 m model and soil from 250 m estimates. They show broad patterns, not plot-level detail. An NDVI image or yield map sharpens the result.");
+  R.notes.push("On site: install in the crop row away from wheel tracks, headlands, trees, drains and irrigation emitters, and note the exact position once installed.");
+}
+
+// ---------- rendering ----------
+function ramp(t) { // perceptual-ish green→yellow→brown ramp; t in [0,1]
+  const stops = [[0, [43, 92, 158]], [0.35, [77, 163, 137]], [0.65, [222, 205, 92]], [1, [156, 84, 40]]];
+  t = Math.max(0, Math.min(1, t)); let i = 0; while (i < stops.length - 2 && t > stops[i + 1][0]) i++;
+  const [t0, c0] = stops[i], [t1, c1] = stops[i + 1], f = (t - t0) / (t1 - t0 || 1);
+  return `rgb(${c0.map((c, j) => Math.round(c + (c1[j] - c) * f)).join(",")})`;
+}
+const VIEWS = {
+  zones: { label: "Zones" },
+  elev: { label: "Elevation (m)", get: (R) => R.T.elev, d: 1 },
+  slope: { label: "Slope (%)", get: (R) => R.T.slope, d: 1 },
+  tpi: { label: "Hollows ↔ rises (m)", get: (R) => R.T.tpi, d: 2, invert: true },
+  clay: { label: "Clay (%)", get: (R) => R.soil && R.soil.clay, d: 0 },
+  ndvi: { label: "NDVI", get: (R) => R.ndvi, d: 2, invert: true },
+};
+function renderResult() {
+  const R = S.result; if (!R) return;
+  $("results").hidden = false;
+  const sm = R.summary;
+  $("summary").innerHTML = [
+    ["Area", `${fmt(R.ha, 2)} ha`], ["Sensors", `${R.sensors.length}`],
+    ["Elevation", `${fmt(sm.eMin, 0)}–${fmt(sm.eMax, 0)} m`], ["Mean slope", `${fmt(sm.fSlope, 1)} %`],
+    ["Soil", R.soil ? `${fmt(sm.fClay, 0)} % clay` : "not loaded"], ["NDVI", R.ndvi ? fmt(sm.fNdvi, 2) : "not used"],
+  ].map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("");
+  const sel = $("view"), cur = sel.value || "zones";
+  sel.innerHTML = Object.entries(VIEWS).filter(([k, v]) => k === "zones" || v.get(R)).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join("");
+  sel.value = [...sel.options].some((o) => o.value === cur) ? cur : "zones";
+  renderGrid();
+  sensorLayer.clearLayers();
+  const list = $("sensorList"); list.innerHTML = "";
+  R.sensors.forEach((s, n) => {
+    const col = ZONE_COLORS[s.zone % ZONE_COLORS.length], name = `HS-${n + 1}`;
+    L.marker([s.lat, s.lon], { icon: L.divIcon({ className: "sensor-pin", html: `<span style="background:${col}">${n + 1}</span>`, iconSize: [30, 30], iconAnchor: [15, 15] }) })
+      .bindPopup(`<b>${name}</b><br>${s.why.map(escapeHtml).join("<br>")}`).addTo(sensorLayer);
+    const card = document.createElement("article"); card.className = "sensor";
+    const coords = `${s.lat.toFixed(6)}, ${s.lon.toFixed(6)}`;
+    card.innerHTML = `<h3><span class="badge" style="background:${col}">${n + 1}</span>${name}</h3>
+      <div class="coords">${coords}</div>
+      <ul>${s.why.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>
+      <div class="row"><button type="button" data-act="zoom">Show</button><button type="button" data-act="copy">Copy coordinates</button>
+      <a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${s.lat.toFixed(6)},${s.lon.toFixed(6)}">Navigate</a></div>`;
+    card.querySelector('[data-act="zoom"]').onclick = () => { map.setView([s.lat, s.lon], Math.max(map.getZoom(), 17)); if (window.innerWidth <= 760) $("mapwrap").scrollIntoView({ behavior: "smooth" }); };
+    card.querySelector('[data-act="copy"]').onclick = async (ev) => { try { await navigator.clipboard.writeText(coords); ev.target.textContent = "Copied"; } catch (e) { ev.target.textContent = coords; } };
+    list.appendChild(card);
+  });
+  $("notes").innerHTML = R.notes.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
+}
+function renderGrid() {
+  const R = S.result; gridLayer.clearLayers(); if (!R) return;
+  const v = $("view").value || "zones", h = R.G.spacing / 2, lg = $("legend");
+  let color;
+  if (v === "zones") {
+    color = (i) => ZONE_COLORS[R.lab[i] % ZONE_COLORS.length];
+    lg.innerHTML = `<div class="row">${R.sensors.map((s, n) => `<span class="row" style="gap:4px"><span class="badge" style="background:${ZONE_COLORS[s.zone % ZONE_COLORS.length]};width:14px;min-width:14px;height:14px;border-width:1px"></span>Zone ${s.zone + 1} · ${fmt(s.share * 100, 0)}%</span>`).join("")}</div>`;
+  } else {
+    const V = VIEWS[v], a = V.get(R), lo = Math.min(...a), hi = Math.max(...a), span = hi - lo || 1;
+    color = (i) => ramp(V.invert ? 1 - (a[i] - lo) / span : (a[i] - lo) / span);
+    const grad = Array.from({ length: 11 }, (_, i) => ramp(V.invert ? 1 - i / 10 : i / 10)).join(",");
+    lg.innerHTML = `<div class="ramp" style="background:linear-gradient(90deg,${grad})"></div><div class="ends"><span>${fmt(lo, V.d)}</span><span>${V.label}</span><span>${fmt(hi, V.d)}</span></div>`;
+  }
+  R.pts.forEach((p, i) => {
+    const a = R.G.P.inv(p.x - h, p.y - h), b = R.G.P.inv(p.x + h, p.y + h);
+    L.rectangle([a, b], { stroke: false, fillColor: color(i), fillOpacity: 0.5, interactive: false }).addTo(gridLayer);
+  });
+}
+$("view").addEventListener("change", renderGrid);
+function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+// ---------- exports ----------
+function download(name, mime, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: mime })), a = document.createElement("a");
+  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+const stamp = () => new Date().toISOString().slice(0, 10);
+$("dlGpx").onclick = () => {
+  const R = S.result; if (!R) return;
+  const w = R.sensors.map((s, n) => `  <wpt lat="${s.lat.toFixed(7)}" lon="${s.lon.toFixed(7)}"><name>HS-${n + 1}</name><desc>${escapeHtml(s.why.join(" "))}</desc></wpt>`).join("\n");
+  const trk = S.field.concat([S.field[0]]).map(([a, b]) => `      <trkpt lat="${a.toFixed(7)}" lon="${b.toFixed(7)}"/>`).join("\n");
+  download(`hydrascout-spots-${stamp()}.gpx`, "application/gpx+xml", `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Hydrascout Placement" xmlns="http://www.topografix.com/GPX/1/1">\n${w}\n  <trk><name>Field boundary</name><trkseg>\n${trk}\n  </trkseg></trk>\n</gpx>\n`);
+};
+$("dlCsv").onclick = () => {
+  const R = S.result; if (!R) return;
+  const rows = [["name", "lat", "lon", "zone", "zone_share_pct", "elevation_m", "slope_pct", "clay_pct", "sand_pct", "ndvi", "dist_to_edge_m"]];
+  R.sensors.forEach((s, n) => rows.push([`HS-${n + 1}`, s.lat.toFixed(7), s.lon.toFixed(7), s.zone + 1, fmt(s.share * 100, 0), fmt(R.T.elev[s.i], 1), fmt(R.T.slope[s.i], 2), R.soil ? fmt(R.soil.clay[s.i], 1) : "", R.soil ? fmt(R.soil.sand[s.i], 1) : "", R.ndvi ? fmt(R.ndvi[s.i], 3) : "", fmt(s.edge, 0)]));
+  download(`hydrascout-spots-${stamp()}.csv`, "text/csv", rows.map((r) => r.join(",")).join("\n") + "\n");
+};
+$("dlGeo").onclick = () => {
+  const R = S.result; if (!R) return;
+  const ring = S.field.concat([S.field[0]]).map(([a, b]) => [b, a]);
+  const fc = { type: "FeatureCollection", features: [
+    { type: "Feature", properties: { kind: "field", area_ha: +R.ha.toFixed(3) }, geometry: { type: "Polygon", coordinates: [ring] } },
+    ...R.sensors.map((s, n) => ({ type: "Feature", properties: { kind: "sensor", name: `HS-${n + 1}`, zone: s.zone + 1, zone_share: +s.share.toFixed(3), reasons: s.why }, geometry: { type: "Point", coordinates: [+s.lon.toFixed(7), +s.lat.toFixed(7)] } })),
+  ] };
+  download(`hydrascout-spots-${stamp()}.geojson`, "application/geo+json", JSON.stringify(fc, null, 2));
+};
+
+// ---------- start ----------
+const saved = store.get("hs.field");
+if (Array.isArray(saved) && saved.length >= 3) setField(saved); else setField(EXAMPLE_FIELD, { example: true });
+</script>
+</body>
+</html>
