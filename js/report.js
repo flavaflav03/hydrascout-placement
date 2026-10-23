@@ -71,7 +71,7 @@ function fieldSvg(R, ctx) {
 
 function reportHtml(R, ctx) {
   const c = centroidLatLng(ctx.field), title = ctx.fieldName ? `Sensor placement – ${ctx.fieldName}` : "Sensor placement";
-  const sm = R.summary;
+  const sm = R.summary, X = ctx.roi;
   const dataRows = [
     ["Field", `${ctx.fieldName ? escapeHtml(ctx.fieldName) + ", " : ""}${fmt(R.ha, 2)} ha, centre ${c[0].toFixed(5)}, ${c[1].toFixed(5)}`],
     ["Elevation", `Copernicus DEM GLO-90 (via Open-Meteo): ${fmt(sm.eMin, 0)}–${fmt(sm.eMax, 0)} m, mean slope ${fmt(sm.fSlope, 1)}%`],
@@ -98,10 +98,13 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:left;p
 .s h3{margin:0 0 4px;display:flex;align-items:center;gap:8px;font-size:17px}.s h3 span{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;color:#fff;font-size:12px}
 .s ul{margin:4px 0 8px;padding-left:20px}.lbl{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:#5c6b61;margin:8px 0 0}.blank{color:#5c6b61}
 .notes{color:#5c6b61;font-size:13px}button{font:inherit;padding:8px 14px;border-radius:6px;border:1px solid #2f6b45;background:#2f6b45;color:#fff;cursor:pointer}
+.headline{font-size:17px;margin:12px 0 0;padding:10px 14px;border-left:4px solid #2f6b45;background:#eef4ef;border-radius:4px}
+.roi-table{font-variant-numeric:tabular-nums}.roi-table td,.roi-table thead th{text-align:right}.roi-table tbody th{font-weight:400;color:#5c6b61}.roi-table td:nth-child(3){background:#eef4ef}
 .legend{display:flex;flex-wrap:wrap;gap:10px;font-size:13px;margin-top:6px}.legend b{font-size:16px}
 @media print{button{display:none}body{padding:0}a{color:inherit}}
 </style></head><body>
 <header><h1>${escapeHtml(title)}</h1><p class="sub">Hydrascout soil &amp; temperature sensors · HSTI France · generated ${new Date().toLocaleDateString()}</p>
+${X ? `<p class="headline">${X.probes || R.sensors.length} probe${(X.probes || R.sensors.length) > 1 ? "s" : ""} at the spots below: about <b>${eur(X.scenarios[1].saved)} saved a year</b>${X.priced ? `, paying back <b>${paybackText(X.scenarios[1].payback, true)}</b>` : ""} (expected case).</p>` : ""}
 <p><button onclick="window.print()">Print or save as PDF</button></p></header>
 <h2>Field and data used</h2><dl>${dataRows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
 <h2>Plan</h2>${fieldSvg(R, ctx)}
@@ -109,6 +112,8 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:left;p
   : R.sensors.map((s) => `<span><b style="color:${zoneColor(s.zone)}">■</b> Zone ${s.zone + 1} · ${fmt(s.share * 100, 0)}% · ${s.name}</span>`).join("")}</div>
 <h2>Sensor positions</h2><div class="wrap"><table><thead><tr><th>Sensor</th><th>Latitude</th><th>Longitude</th><th>${R.blocks ? "Block" : "Zone"} (share)</th><th>Elevation</th><th>Clay</th><th>NDVI</th></tr></thead><tbody>${table}</tbody></table></div>
 <h2>Why each spot was chosen</h2>${cards}
+${X ? `<h2>Return on investment</h2><p>${escapeHtml(roiBasis(X))} ${escapeHtml(roiCostText(X))}</p><div class="wrap">${roiTable(X)}</div>
+<p class="notes">Savings use the farmer's own figures and a water saving of ${X.scenarios.map((sc) => `${num(sc.rate)}%`).join(" / ")} (low / expected / high), in line with what Hydrascout probes typically save (10–30% of irrigation water, with the pumping hours that go with it). Payback counts irrigation seasons.</p>` : ""}
 <h2>Method and limits</h2><ul class="notes"><li>The field is sampled on a regular grid. Each point gets elevation, slope, relative position (hollow or rise), soil texture, NDVI and irrigation coverage when available. ${R.blocks ? "Each irrigation block gets one probe at its most typical point, away from the field edge and the block border; a block made of two clearly different parts gets an optional second probe." : "Points are grouped into zones with similar conditions, and each sensor sits at the most typical point of its zone, away from the field edge."}</li>${R.notes.map((n) => `<li>${escapeHtml(n)}</li>`).join("")}</ul>
 </body></html>`;
   return html;

@@ -155,7 +155,7 @@ const S = { field: null, isExample: false, fieldFromBlocks: false, mode: null, r
 // Example field so the tool opens in a working state (farmland in the Beauce, France).
 const EXAMPLE_FIELD = [[48.2862, 1.6043], [48.2871, 1.6121], [48.2832, 1.6139], [48.2808, 1.6098], [48.2817, 1.6038]];
 
-function clearResult() { S.result = null; gridLayer.clearLayers(); sensorLayer.clearLayers(); $("results").hidden = true; }
+function clearResult() { const had = S.result; S.result = null; gridLayer.clearLayers(); sensorLayer.clearLayers(); $("results").hidden = true; if (had) roiDefaults(); }
 
 function setField(latlngs, { fit = true, example = false, fromBlocks = false } = {}) {
   S.field = latlngs; S.isExample = example; S.fieldFromBlocks = fromBlocks; clearResult(); renderKey();
@@ -172,6 +172,7 @@ function setField(latlngs, { fit = true, example = false, fromBlocks = false } =
   $("soilLink").href = `https://cartes.gouv.fr/explorer-les-cartes/?c=${c[1].toFixed(5)},${c[0].toFixed(5)}&z=15&l=INRA.CARTE.SOLS$GEOPORTAIL:OGC:WMTS(1)&permalink=yes`;
   $("analyzeBtn").disabled = false;
   if (!example) { store.set("hs.field", latlngs); store.set("hs.fieldFromBlocks", fromBlocks); }
+  roiDefaults();
 }
 
 // ---------- search ----------
@@ -575,7 +576,7 @@ function renderBlocks() {
   const want = askedBlocks(), bc = $("blockCount"); bc.hidden = !n && !want;
   bc.textContent = !n ? `No block drawn yet (${want} expected)` : `${n} block${n === 1 ? "" : "s"} drawn${want ? ` of ${want}` : ""} · ${fmt(S.blocks.reduce((a, b) => a + fieldAreaHa(b.ring), 0), 2)} ha`;
   store.set("hs.blocks", S.blocks);
-  renderNeed();
+  renderNeed(); roiDefaults();
 }
 // The grower's own block count (step 1) frames the need: one probe per block. It sets the probe count when no
 // block map is drawn, and is checked against the blocks drawn in step 3.
@@ -731,6 +732,7 @@ function renderResult() {
     list.appendChild(card);
   });
   $("notes").innerHTML = R.notes.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
+  roiDefaults();
 }
 function renderGrid() {
   const R = S.result; gridLayer.clearLayers(); if (!R) return;
@@ -756,8 +758,45 @@ function renderGrid() {
 }
 $("view").addEventListener("change", renderGrid);
 
+// ---------- return on investment ----------
+// The farmer's own water and pumping figures and HSTI's probe price (entered by hand: it depends on the probe
+// type and the sensors fitted). Area and probe count follow the field and the plan until typed over.
+const ROI_FIELDS = { roiArea: "area", roiWater: "waterPerHa", roiWaterPrice: "waterPrice", roiFlow: "flow", roiKw: "kw", roiKwh: "kwhPrice", roiFuel: "fuelLph", roiFuelPrice: "fuelPrice", roiProbes: "probes", roiPrice: "probePrice", roiInstall: "install", roiSub: "sub" };
+function readRoi() {
+  const v = (id) => { const x = parseFloat($(id).value); return Number.isFinite(x) ? x : null; };
+  const o = { energy: $("roiEnergy").value, rates: [v("roiLo"), v("roiMid"), v("roiHi")] };
+  for (const [id, k] of Object.entries(ROI_FIELDS)) o[k] = v(id);
+  return o;
+}
+function roiDefaults() {
+  const setAuto = (id, val) => { const el = $(id); if (el.dataset.typed) return; el.value = val == null ? "" : val; };
+  const area = S.blocks.length ? S.blocks.reduce((a, b) => a + fieldAreaHa(b.ring), 0) : S.field && !S.isExample ? fieldAreaHa(S.field) : null;
+  setAuto("roiArea", area == null ? null : +area.toFixed(1));
+  setAuto("roiProbes", S.result ? S.result.sensors.length : S.blocks.length || askedBlocks());
+  renderRoi();
+}
+function renderRoi() {
+  const e = $("roiEnergy").value;
+  document.querySelectorAll(".roi-el").forEach((el) => { el.hidden = e !== "electric"; });
+  document.querySelectorAll(".roi-di").forEach((el) => { el.hidden = e !== "diesel"; });
+  document.querySelectorAll(".roi-pump").forEach((el) => { el.hidden = e === "none"; });
+  const X = computeRoi(readRoi()), out = $("roiOut");
+  if (!X) { out.innerHTML = '<p class="hint">Enter the irrigated area and the water used per year to see the savings.</p>'; return; }
+  const mid = X.scenarios[1];
+  out.innerHTML = `<p class="roi-headline">${X.probes ? `<b>${X.probes} probe${X.probes > 1 ? "s" : ""}</b>: ` : ""}about <b>${eur(mid.saved)} saved a year</b> (${num(mid.m3)} m³ of water${mid.hours ? `, ${num(mid.hours)} pumping hours` : ""})${X.priced ? `, paying back <b>${paybackText(mid.payback, true)}</b>` : ""}.</p>
+    <p class="hint">${escapeHtml(roiBasis(X))} ${escapeHtml(roiCostText(X))}</p>${roiTable(X)}`;
+}
+document.getElementById("roiStep").addEventListener("input", (e) => {
+  if (e.target.id === "roiArea" || e.target.id === "roiProbes") e.target.dataset.typed = e.target.value === "" ? "" : "1";
+  const saved = { energy: $("roiEnergy").value };
+  for (const id of [...Object.keys(ROI_FIELDS), "roiLo", "roiMid", "roiHi"]) saved[id] = $(id).value;
+  saved.typed = ["roiArea", "roiProbes"].filter((id) => $(id).dataset.typed);
+  store.set("hs.roi", saved);
+  if (e.target.value === "" && (e.target.id === "roiArea" || e.target.id === "roiProbes")) roiDefaults(); else renderRoi();
+});
+
 // ---------- exports ----------
-const exportCtx = () => ({ field: S.field, fieldName: $("fieldName").value.trim(), askedBlocks: askedBlocks() });
+const exportCtx = () => ({ field: S.field, fieldName: $("fieldName").value.trim(), askedBlocks: askedBlocks(), roi: computeRoi(readRoi()) });
 $("dlReport").onclick = () => S.result && openReport(S.result, exportCtx());
 $("dlGpx").onclick = () => S.result && exportGpx(S.result, exportCtx());
 $("dlCsv").onclick = () => S.result && exportCsv(S.result, exportCtx());
@@ -765,6 +804,12 @@ $("dlGeo").onclick = () => S.result && exportGeoJson(S.result, exportCtx());
 
 // ---------- start ----------
 (function start() {
+  const roi = store.get("hs.roi");
+  if (roi) {
+    $("roiEnergy").value = roi.energy || "electric";
+    for (const id of [...Object.keys(ROI_FIELDS), "roiLo", "roiMid", "roiHi"]) if (roi[id] != null && roi[id] !== "") $(id).value = roi[id];
+    for (const id of roi.typed || []) $(id).dataset.typed = "1";
+  }
   const saved = store.get("hs.field");
   if (Array.isArray(saved) && saved.length >= 3) setField(saved, { fromBlocks: !!store.get("hs.fieldFromBlocks") }); else setField(EXAMPLE_FIELD, { example: true });
   $("fieldName").value = store.get("hs.fieldName") || "";

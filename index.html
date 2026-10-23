@@ -174,6 +174,41 @@
       <ul class="notes" id="notes"></ul>
     </section>
 
+    <section class="step" id="roiStep">
+      <h2><b>8</b> Return on investment</h2>
+      <p class="hint">A Hydrascout probe typically saves 10–30% of irrigation water, and the pumping hours, electricity or diesel that go with it. Ask the farmer for their own figures: the closer they are, the more convincing the result.</p>
+      <h3 class="sub-h">Water</h3>
+      <div class="subopts">
+        <label for="roiArea">Irrigated area</label><span><input type="number" id="roiArea" min="0" step="0.1"><span class="unit">ha</span></span>
+        <label for="roiWater">Water used per year</label><span><input type="number" id="roiWater" min="0" step="50" placeholder="2000"><span class="unit">m³/ha</span></span>
+        <label for="roiWaterPrice">Price of 1 m³ of water</label><span><input type="number" id="roiWaterPrice" min="0" step="0.01" placeholder="0.15"><span class="unit">€/m³</span></span>
+      </div>
+      <h3 class="sub-h">Pumping</h3>
+      <div class="subopts">
+        <label for="roiEnergy">Pump runs on</label>
+        <select id="roiEnergy"><option value="electric">Electricity</option><option value="diesel">Diesel</option><option value="none">No pumping cost</option></select>
+        <label for="roiFlow" class="roi-pump">Pump flow</label><span class="roi-pump"><input type="number" id="roiFlow" min="0" step="5" placeholder="60"><span class="unit">m³/h</span></span>
+        <label for="roiKw" class="roi-el">Pump power</label><span class="roi-el"><input type="number" id="roiKw" min="0" step="1" placeholder="30"><span class="unit">kW</span></span>
+        <label for="roiKwh" class="roi-el">Price of 1 kWh</label><span class="roi-el"><input type="number" id="roiKwh" min="0" step="0.01" placeholder="0.20"><span class="unit">€/kWh</span></span>
+        <label for="roiFuel" class="roi-di">Diesel use</label><span class="roi-di"><input type="number" id="roiFuel" min="0" step="0.5" placeholder="8"><span class="unit">L/h</span></span>
+        <label for="roiFuelPrice" class="roi-di">Price of 1 L of diesel</label><span class="roi-di"><input type="number" id="roiFuelPrice" min="0" step="0.01" placeholder="1.20"><span class="unit">€/L</span></span>
+      </div>
+      <h3 class="sub-h">Probes (HSTI quote)</h3>
+      <div class="subopts">
+        <label for="roiProbes">Number of probes</label><span><input type="number" id="roiProbes" min="0" step="1"></span>
+        <label for="roiPrice">Price per probe</label><span><input type="number" id="roiPrice" min="0" step="10"><span class="unit">€</span></span>
+        <label for="roiInstall">Installation (total, one-off)</label><span><input type="number" id="roiInstall" min="0" step="10"><span class="unit">€</span></span>
+        <label for="roiSub">Subscription per probe</label><span><input type="number" id="roiSub" min="0" step="10"><span class="unit">€/year</span></span>
+      </div>
+      <h3 class="sub-h">Water saving</h3>
+      <div class="subopts">
+        <label for="roiLo">Low</label><span><input type="number" id="roiLo" min="0" max="80" step="1" value="10"><span class="unit">%</span></span>
+        <label for="roiMid">Expected</label><span><input type="number" id="roiMid" min="0" max="80" step="1" value="20"><span class="unit">%</span></span>
+        <label for="roiHi">High</label><span><input type="number" id="roiHi" min="0" max="80" step="1" value="30"><span class="unit">%</span></span>
+      </div>
+      <div id="roiOut" class="roi-out"><p class="hint">Enter the water used per year to see the savings.</p></div>
+    </section>
+
     <footer>Data: elevation Copernicus DEM GLO-90 via Open-Meteo · soil ISRIC SoilGrids 2.0 · NDVI Copernicus Sentinel-2 via Earth Search (AWS) · address search IGN Géoplateforme (Base Adresse Nationale) and OpenStreetMap Nominatim · imagery Esri. Recommendations are a starting point: check each spot on the ground before installing.</footer>
   </aside>
   <div id="mapwrap">
@@ -188,6 +223,7 @@
 <script src="js/util.js?v=10"></script>
 <script src="js/sources.js?v=10"></script>
 <script src="js/analysis.js?v=10"></script>
+<script src="js/roi.js?v=10"></script>
 <script src="js/report.js?v=10"></script>
 <script src="js/app.js?v=10"></script>
 </body>
