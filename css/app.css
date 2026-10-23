@@ -166,3 +166,14 @@ footer { font-size: 12px; color: var(--muted); margin-top: auto; }
 .sensor-pin { cursor: grab; }
 .sensor-pin.moved span { border-style: dashed; }
 .sensor.moved h3 .tag { margin-left: 6px; vertical-align: middle; }
+
+/* Irrigation blocks */
+.sub-h { font: 600 13px/1.2 var(--font-ui); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin: 6px 0 0; }
+.block-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.block-list li { display: flex; align-items: center; gap: 8px; }
+.block-list .sw { flex: none; width: 14px; height: 14px; border-radius: 3px; }
+.block-list input { flex: 1 1 auto; min-width: 0; }
+.block-list .ha { font: 13px var(--font-data); color: var(--muted); white-space: nowrap; }
+.block-list button { padding: 6px 9px; font-size: 13px; }
+.block-label { font: 700 13px/1 var(--font-ui); background: rgba(255,255,255,.85); border: 0; box-shadow: none; padding: 3px 6px; }
+.block-label::before { display: none; }

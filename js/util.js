@@ -3,7 +3,7 @@
 
 const $ = (id) => document.getElementById(id);
 const ZONE_COLORS = ["#2f7fbf", "#e0a02a", "#4f9e52", "#c4554d", "#8a6bbf", "#2fa39b", "#a8733a", "#d06fa8", "#6d8a1f", "#4a5fc1", "#c98a8a", "#3d3d3d"];
-const zoneColor = (z) => ZONE_COLORS[z % ZONE_COLORS.length];
+const zoneColor = (z) => (z < 0 ? "#9aa59d" : ZONE_COLORS[z % ZONE_COLORS.length]); // -1: outside every irrigation block
 const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },

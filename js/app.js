@@ -311,7 +311,7 @@ function readDeviceHash() {
 function drawbar(msg) { const d = $("drawbar"); d.hidden = !msg; d.textContent = msg || ""; }
 function renderDraft() {
   draftLayer.clearLayers();
-  const drawing = S.mode === "draw";
+  const drawing = S.mode === "draw", block = S.mode === "block";
   if (S.draft.length > 1) L.polyline(S.draft, { color: "#ffd84a", weight: 3 }).addTo(draftLayer);
   if (S.draft.length > 2) L.polygon(S.draft, { color: "#ffd84a", weight: 0, fillOpacity: 0.15 }).addTo(draftLayer);
   S.draft.forEach((p, i) => {
@@ -319,23 +319,30 @@ function renderDraft() {
     if (i === 0) mk.on("click", (ev) => { L.DomEvent.stopPropagation(ev); finishDraw(); });
   });
   $("undoBtn").hidden = !drawing; $("finishBtn").hidden = !drawing; $("finishBtn").disabled = S.draft.length < 3;
-  drawbar(drawing ? (S.draft.length < 3 ? `Tap the map to add corners (${S.draft.length} so far)` : "Tap the first corner or Finish to close the field") : "");
+  $("blockUndo").hidden = !block; $("blockFinish").hidden = !block; $("blockFinish").disabled = S.draft.length < 3;
+  const what = block ? `block ${nextBlockName()}` : "the field";
+  drawbar(drawing || block ? (S.draft.length < 3 ? `Tap the map to add the corners of ${what} (${S.draft.length} so far)` : `Tap the first corner or Finish to close ${what}`) : "");
 }
 function setMode(mode) {
   S.mode = mode; S.draft = [];
   if (mode) map.doubleClickZoom.disable(); else map.doubleClickZoom.enable();
   map.getContainer().style.cursor = mode ? "crosshair" : "";
   $("drawBtn").classList.toggle("active", mode === "draw"); $("drawBtn").textContent = mode === "draw" ? "Cancel" : "Draw boundary";
+  $("blockBtn").classList.toggle("active", mode === "block"); $("blockBtn").textContent = mode === "block" ? "Cancel" : "Draw a block";
   $("pivCentreBtn").classList.toggle("active", mode === "pivot"); $("pivCentreBtn").textContent = mode === "pivot" ? "Cancel" : "Place pivot centre on map";
   renderDraft();
   if (mode === "pivot") drawbar("Tap the pivot centre on the map");
 }
-function finishDraw() { if (S.draft.length < 3) return; const f = S.draft.slice(); setMode(null); setField(f, { fit: false }); }
+function finishDraw() {
+  if (S.draft.length < 3) return;
+  const f = S.draft.slice(), block = S.mode === "block"; setMode(null);
+  if (block) addBlocks([{ name: nextBlockName(), ring: f }]); else setField(f, { fit: false });
+}
 $("drawBtn").addEventListener("click", () => setMode(S.mode === "draw" ? null : "draw"));
 $("undoBtn").addEventListener("click", () => { S.draft.pop(); renderDraft(); });
 $("finishBtn").addEventListener("click", finishDraw);
 map.on("click", (e) => {
-  if (S.mode === "draw") { S.draft.push([e.latlng.lat, e.latlng.lng]); renderDraft(); }
+  if (S.mode === "draw" || S.mode === "block") { S.draft.push([e.latlng.lat, e.latlng.lng]); renderDraft(); }
   else if (S.mode === "pivot") { irr.pivotCentre = [e.latlng.lat, e.latlng.lng]; setMode(null); updateIrrigation(); }
   else identify(e.latlng);
 });
@@ -512,6 +519,68 @@ function updateIrrigation() {
 ["irrType", "dripEmitter", "dripLine", "dripFlow", "sprSpacing", "pivRadius", "pivSpan", "irrNotes"].forEach((id) => $(id).addEventListener(id === "irrType" ? "change" : "input", updateIrrigation));
 $("pivCentreBtn").addEventListener("click", () => setMode(S.mode === "pivot" ? null : "pivot"));
 
+// ---------- irrigation blocks ----------
+// HSTI sizes a probe kit as one probe per irrigation block, so blocks drive the number and place of the probes.
+const blockLayer = L.layerGroup().addTo(map);
+S.blocks = [];
+function nextBlockName() { const used = new Set(S.blocks.map((b) => b.name)); for (let i = 0; ; i++) { const n = i < 26 ? String.fromCharCode(65 + i) : `B${i + 1}`; if (!used.has(n)) return n; } }
+function addBlocks(list) { S.blocks.push(...list); clearResult(); renderBlocks(); }
+function renderBlocks() {
+  blockLayer.clearLayers();
+  S.blocks.forEach((b, bi) => {
+    L.polygon(b.ring, { color: zoneColor(bi), weight: 2.5, fillOpacity: 0.12, dashArray: "4 4", interactive: false }).addTo(blockLayer)
+      .bindTooltip(escapeHtml(b.name), { permanent: true, direction: "center", offset: [0, -34], className: "block-label" });
+  });
+  const ul = $("blockList"); ul.hidden = !S.blocks.length;
+  ul.innerHTML = S.blocks.map((b, bi) => {
+    const P = makeProj(...centroidLatLng(b.ring)), ha = polyArea(b.ring.map(([a, c]) => P.fwd(a, c))) / 10000;
+    return `<li><i class="sw" style="background:${zoneColor(bi)}"></i><input type="text" value="${escapeHtml(b.name)}" data-i="${bi}" aria-label="Block name" maxlength="30"><span class="ha">${fmt(ha, 2)} ha</span><button type="button" data-del="${bi}" aria-label="Delete block ${escapeHtml(b.name)}">Delete</button></li>`;
+  }).join("");
+  const n = S.blocks.length, sel = $("nSensors");
+  sel.disabled = n > 0;
+  if (n) sel.value = "auto";
+  $("autoOpt").textContent = n ? `One per irrigation block (${n})` : "Auto (by field size)";
+  $("countHint").textContent = n ? `One probe per block drawn in step 4, plus an optional one where a block is clearly uneven.` : "No block map? Pick the number of irrigation blocks here: one probe per block.";
+  store.set("hs.blocks", S.blocks);
+}
+$("blockList").addEventListener("input", (e) => { const i = e.target.dataset.i; if (i == null) return; S.blocks[+i].name = e.target.value.trim() || nextBlockName(); clearResult(); store.set("hs.blocks", S.blocks); blockLayer.getLayers()[+i].setTooltipContent(escapeHtml(S.blocks[+i].name)); });
+$("blockList").addEventListener("click", (e) => { const d = e.target.dataset.del; if (d == null) return; S.blocks.splice(+d, 1); clearResult(); renderBlocks(); });
+$("blockBtn").addEventListener("click", () => setMode(S.mode === "block" ? null : "block"));
+$("blockUndo").addEventListener("click", () => { S.draft.pop(); renderDraft(); });
+$("blockFinish").addEventListener("click", finishDraw);
+$("blockFile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  try {
+    const found = readPolygons(await f.text());
+    if (!found.length) throw new Error("none");
+    addBlocks(found.map((p) => ({ name: p.name || nextBlockName(), ring: p.ring })));
+    setStatus(`${found.length} irrigation block${found.length > 1 ? "s" : ""} imported.`);
+  } catch (err) { setStatus("Could not read irrigation blocks from that file. Use a GeoJSON or KML file with one polygon per block, in WGS84 (lat/lon).", true); }
+});
+// Every polygon in a GeoJSON or KML file, as { name, ring: [[lat, lon], …] }.
+function readPolygons(txt) {
+  const out = [], close = (r) => { const a = r[0], b = r[r.length - 1]; if (a[0] === b[0] && a[1] === b[1]) r.pop(); return r; };
+  if (txt.trim().startsWith("<")) {
+    const doc = new DOMParser().parseFromString(txt, "application/xml");
+    doc.querySelectorAll("Placemark").forEach((pm) => {
+      const nm = pm.querySelector("name");
+      pm.querySelectorAll("Polygon").forEach((pg) => {
+        const c = pg.querySelector("outerBoundaryIs coordinates, coordinates"); if (!c) return;
+        const ring = c.textContent.trim().split(/\s+/).map((t) => t.split(",").map(Number)).filter((a) => a.length >= 2).map(([lon, lat]) => [lat, lon]);
+        if (ring.length >= 3) out.push({ name: nm ? nm.textContent.trim() : null, ring: close(ring) });
+      });
+    });
+    return out;
+  }
+  const g = JSON.parse(txt), feats = g.type === "FeatureCollection" ? g.features : g.type === "Feature" ? [g] : [{ geometry: g, properties: {} }];
+  for (const ft of feats) {
+    const geom = ft.geometry, props = ft.properties || {}, name = props.name || props.nom || props.block || props.secteur || null;
+    const polys = !geom ? [] : geom.type === "Polygon" ? [geom.coordinates] : geom.type === "MultiPolygon" ? geom.coordinates : [];
+    polys.forEach((pc) => { if (pc[0] && pc[0].length >= 3) out.push({ name: name != null ? String(name) : null, ring: close(pc[0].map(([lon, lat]) => [lat, lon])) }); });
+  }
+  return out;
+}
+
 // ---------- analysis ----------
 async function analyze() {
   if (!S.field) return;
@@ -536,7 +605,7 @@ async function analyze() {
       if (s < soilIdx.length - 1) await sleep(1200);
     }
 
-    S.result = computePlacement({ G, elev, soilSamples, ndvi: S.ndvi, irrigation, request: $("nSensors").value, buffer: Math.max(0, +$("buffer").value || 0) });
+    S.result = computePlacement({ G, elev, soilSamples, ndvi: S.ndvi, irrigation, request: $("nSensors").value, blocks: S.blocks, buffer: Math.max(0, +$("buffer").value || 0) });
     renderResult();
     setStatus("");
   } catch (err) {
@@ -565,7 +634,7 @@ function renderResult() {
     ["Soil", R.soil ? `${fmt(sm.fClay, 0)} % clay` : "not loaded"], ["NDVI", R.ndvi ? `${fmt(sm.fNdvi, 2)}${R.ndviInfo.date ? ` (${R.ndviInfo.date})` : ""}` : "not used"],
   ].map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("");
   const sel = $("view"), cur = sel.value || "zones";
-  sel.innerHTML = Object.entries(VIEWS).filter(([k, v]) => k === "zones" || v.get(R)).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join("");
+  sel.innerHTML = Object.entries(VIEWS).filter(([k, v]) => k === "zones" || v.get(R)).map(([k, v]) => `<option value="${k}">${k === "zones" && R.blocks ? "Irrigation blocks" : v.label}</option>`).join("");
   sel.value = [...sel.options].some((o) => o.value === cur) ? cur : "zones";
   renderGrid();
   sensorLayer.clearLayers();
@@ -583,15 +652,19 @@ function renderResult() {
     });
     const card = document.createElement("article"); card.className = `sensor${s.moved ? " moved" : ""}`;
     const coords = `${s.lat.toFixed(6)}, ${s.lon.toFixed(6)}`;
-    card.innerHTML = `<h3><span class="badge" style="background:${col}">${n + 1}</span>${s.name}${s.moved ? ' <span class="tag">Moved</span>' : ""}</h3>
+    card.innerHTML = `<h3><span class="badge" style="background:${col}">${n + 1}</span>${s.name}${s.block != null ? ` <span class="tag">Block ${escapeHtml(s.block)}</span>` : ""}${s.optional ? ' <span class="tag">Optional</span>' : ""}${s.moved ? ' <span class="tag">Moved</span>' : ""}</h3>
       <div class="coords">${coords}</div>
       <ul>${s.why.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>
       ${s.tip ? `<p class="hint">Installation: ${escapeHtml(s.tip)}</p>` : ""}
       <div class="row"><button type="button" data-act="zoom">Show</button><button type="button" data-act="copy">Copy coordinates</button>
       <a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${s.lat.toFixed(6)},${s.lon.toFixed(6)}">Navigate</a>
-      ${s.moved ? '<button type="button" data-act="reset">Back to recommended spot</button>' : ""}</div>`;
+      ${s.moved ? '<button type="button" data-act="reset">Back to recommended spot</button>' : ""}${s.optional ? '<button type="button" data-act="drop">Drop this optional probe</button>' : ""}</div>`;
     card.querySelector('[data-act="zoom"]').onclick = () => { map.setView([s.lat, s.lon], Math.max(map.getZoom(), 17)); if (window.innerWidth <= 760) $("mapwrap").scrollIntoView({ behavior: "smooth" }); };
     card.querySelector('[data-act="copy"]').onclick = async (ev) => { try { await navigator.clipboard.writeText(coords); ev.target.textContent = "Copied"; } catch (e) { ev.target.textContent = coords; } };
+    if (s.optional) card.querySelector('[data-act="drop"]').onclick = () => {
+      R.sensors.splice(R.sensors.indexOf(s), 1); R.sensors.forEach((t, k) => { t.name = `HS-${k + 1}`; });
+      setStatus(`Optional probe removed: block ${s.block} keeps one probe.`); renderResult();
+    };
     if (s.moved) card.querySelector('[data-act="reset"]').onclick = () => { resetSensor(s); setStatus(`${s.name} is back on the recommended spot.`); renderResult(); };
     list.appendChild(card);
   });
@@ -601,7 +674,10 @@ function renderGrid() {
   const R = S.result; gridLayer.clearLayers(); if (!R) return;
   const v = $("view").value || "zones", h = R.G.spacing / 2, lg = $("legend");
   let color;
-  if (v === "zones") {
+  if (v === "zones" && R.blocks) {
+    color = (i) => zoneColor(R.lab[i]);
+    lg.innerHTML = `<div class="row">${R.blocks.map((b, bi) => `<span class="row" style="gap:4px"><span class="badge" style="background:${zoneColor(bi)};width:14px;min-width:14px;height:14px;border-width:1px"></span>Block ${escapeHtml(b.name)} · ${fmt(b.ha, 1)} ha</span>`).join("")}${R.lab.some((l) => l < 0) ? `<span class="row" style="gap:4px"><span class="badge" style="background:${zoneColor(-1)};width:14px;min-width:14px;height:14px;border-width:1px"></span>Outside blocks</span>` : ""}</div>`;
+  } else if (v === "zones") {
     color = (i) => zoneColor(R.lab[i]);
     lg.innerHTML = `<div class="row">${R.sensors.map((s) => `<span class="row" style="gap:4px"><span class="badge" style="background:${zoneColor(s.zone)};width:14px;min-width:14px;height:14px;border-width:1px"></span>Zone ${s.zone + 1} · ${fmt(s.share * 100, 0)}%</span>`).join("")}</div>`;
   } else {
@@ -639,6 +715,9 @@ $("dlGeo").onclick = () => S.result && exportGeoJson(S.result, exportCtx());
     irr.pivotCentre = si.pivotCentre || null;
   }
   updateIrrigation();
+  const sb = store.get("hs.blocks");
+  if (Array.isArray(sb)) S.blocks = sb.filter((b) => b && typeof b.name === "string" && Array.isArray(b.ring) && b.ring.length >= 3);
+  renderBlocks();
   if (!$("devSerial").value) $("devSerial").value = store.get("hs.devSerial") || "";
   readDeviceHash();
 })();

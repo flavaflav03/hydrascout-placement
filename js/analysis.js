@@ -66,6 +66,9 @@ function kmeans(X, k, seed) {
   return { lab, C, inertia };
 }
 
+// When a block counts as uneven: the two-part split must explain this share of its variation, the smaller part must
+// cover this share of the block, and the block's spread (standardised units per point) must exceed noise.
+const UNEVEN = { gain: 0.6, minShare: 0.25, spread: 0.5 };
 function autoCount(ha) { return ha < 3 ? 1 : ha < 8 ? 2 : ha < 20 ? 3 : ha < 40 ? 4 : ha < 80 ? 5 : 6; }
 
 const IRRIGATION_LABELS = {
@@ -120,35 +123,79 @@ function computePlacement(inp) {
   if (piv && irrShare > 0.05 && irrShare < 0.95) { layers.irr = piv.map((q) => (q.under ? 1 : 0)); spec.push(["irr", 2.5, 0]); }
   const X = pts.map((_, i) => spec.map(([key, w, floor]) => { const a = layers[key], m = mean(a), s = Math.max(std(a), floor, 1e-6); return ((a[i] - m) / s) * w; }));
 
-  const k = Math.min(pts.length, inp.request === "auto" ? autoCount(ha) : +inp.request);
-  let best = null; for (let s = 1; s <= 12; s++) { const r = kmeans(X, k, s * 7919); if (!best || r.inertia < best.inertia) best = r; }
-  // Majority filter for tidier, more contiguous zones.
-  const nb = neighbours(pts, G.spacing * 1.5);
-  let lab = best.lab.map((l, i) => { const cnt = {}; for (const [j] of nb[i]) cnt[best.lab[j]] = (cnt[best.lab[j]] || 0) + 1; const top = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0]; return top && top[1] > nb[i].length / 2 ? +top[0] : l; });
-
-  // Order zones by size, then pick the most representative interior point of each one.
-  const buffer = inp.buffer;
-  const zones = [...new Set(lab)].map((z) => ({ z, idx: lab.map((l, i) => (l === z ? i : -1)).filter((i) => i >= 0) })).sort((a, b) => b.idx.length - a.idx.length);
-  const remap = new Map(zones.map((zo, i) => [zo.z, i])); lab = lab.map((l) => remap.get(l));
+  const nb = neighbours(pts, G.spacing * 1.5), buffer = inp.buffer;
   const featDims = spec.map(([key], d) => (key === "x" || key === "y" ? -1 : d)).filter((d) => d >= 0);
-  const sensors = zones.map((zo, zi) => {
-    const centre = spec.map((_, d) => mean(zo.idx.map((i) => X[i][d])));
-    const core = (i) => nb[i].filter(([j]) => lab[j] === zi).length / nb[i].length;
-    const okPivot = (i) => !piv || !piv[i].avoid;
+  const okPivot = (i) => !piv || !piv[i].avoid;
+  // Most representative interior point of a set of grid points: away from the edge, the pivot's bad spots and the
+  // set's own borders, and closest to its typical conditions.
+  function pickSpot(idx) {
+    const inSet = new Set(idx), centre = spec.map((_, d) => mean(idx.map((i) => X[i][d])));
+    const core = (i) => nb[i].filter(([j]) => inSet.has(j)).length / nb[i].length;
     const tiers = [
       (i) => pts[i].edge >= buffer && core(i) >= 0.75 && okPivot(i),
       (i) => pts[i].edge >= buffer && okPivot(i),
       (i) => pts[i].edge >= buffer,
     ];
     let cand = [], tier = 0;
-    for (; tier < tiers.length && !cand.length; tier++) cand = zo.idx.filter(tiers[tier]);
-    if (!cand.length) { const me = Math.max(...zo.idx.map((i) => pts[i].edge)); cand = zo.idx.filter((i) => pts[i].edge >= me - 1e-6); tier = 4; }
+    for (; tier < tiers.length && !cand.length; tier++) cand = idx.filter(tiers[tier]);
+    if (!cand.length) { const me = Math.max(...idx.map((i) => pts[i].edge)); cand = idx.filter((i) => pts[i].edge >= me - 1e-6); tier = 4; }
     const score = (i) => Math.sqrt(featDims.reduce((s, d) => s + (X[i][d] - centre[d]) ** 2, 0)) + 0.5 * (1 - core(i));
-    const pick = cand.reduce((b, i) => (score(i) < score(b) ? i : b), cand[0]);
-    return { zone: zi, i: pick, share: zo.idx.length / pts.length, idx: zo.idx, tier };
-  });
+    return { i: cand.reduce((b, i) => (score(i) < score(b) ? i : b), cand[0]), tier };
+  }
 
-  const R = { G, pts, lab, T, soil, ndvi, ndviInfo: ndvi ? inp.ndvi : null, piv, irrigation: inp.irrigation, sensors, ha, notes, buffer, k };
+  let lab, sensors, k, blocks = null;
+  if (inp.blocks && inp.blocks.length) {
+    // Irrigation blocks: each block is watered on its own, so it gets its own probe (HSTI rule: one per block).
+    // A block that is clearly uneven inside gets an optional second probe, with the difference explained.
+    const rings = inp.blocks.map((b) => b.ring.map(([a, c]) => G.P.fwd(a, c)));
+    blocks = inp.blocks.map((b, bi) => ({ name: b.name, ha: polyArea(rings[bi]) / 10000 }));
+    lab = pts.map((p) => rings.findIndex((r) => inPoly(p.x, p.y, r)));
+    sensors = [];
+    blocks.forEach((b, bi) => {
+      const idx = lab.map((l, i) => (l === bi ? i : -1)).filter((i) => i >= 0);
+      if (!idx.length) { notes.push(`Block ${b.name} is outside the field or smaller than the sampling grid (${fmt(G.spacing, 0)} m), so it has no probe. Check its outline.`); return; }
+      const base = { zone: bi, block: b.name, blockHa: (idx.length / pts.length) * ha, share: idx.length / pts.length };
+      const split = idx.length >= 8 && b.ha >= 0.5 ? unevenSplit(idx) : null;
+      if (!split) { sensors.push({ ...base, ...pickSpot(idx), idx }); return; }
+      sensors.push({ ...base, ...pickSpot(split.main), idx: split.main, uneven: split.text, part: "main" });
+      sensors.push({ ...base, ...pickSpot(split.other), idx: split.other, uneven: split.text, part: "optional", optional: true });
+    });
+    blocks.forEach((b, bi) => { b.ha = (lab.filter((l) => l === bi).length / pts.length) * ha; }); // the part inside the field
+    const outside = lab.filter((l) => l < 0).length / pts.length;
+    if (outside > 0.05) notes.push(`${fmt(outside * ha, 1)} ha of the field (${fmt(outside * 100, 0)}%) is outside the drawn irrigation blocks and has no probe.`);
+    k = sensors.length;
+  } else {
+    k = Math.min(pts.length, inp.request === "auto" ? autoCount(ha) : +inp.request);
+    let best = null; for (let s = 1; s <= 12; s++) { const r = kmeans(X, k, s * 7919); if (!best || r.inertia < best.inertia) best = r; }
+    // Majority filter for tidier, more contiguous zones.
+    lab = best.lab.map((l, i) => { const cnt = {}; for (const [j] of nb[i]) cnt[best.lab[j]] = (cnt[best.lab[j]] || 0) + 1; const top = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0]; return top && top[1] > nb[i].length / 2 ? +top[0] : l; });
+    // Order zones by size, then pick the most representative interior point of each one.
+    const zones = [...new Set(lab)].map((z) => ({ z, idx: lab.map((l, i) => (l === z ? i : -1)).filter((i) => i >= 0) })).sort((a, b) => b.idx.length - a.idx.length);
+    const remap = new Map(zones.map((zo, i) => [zo.z, i])); lab = lab.map((l) => remap.get(l));
+    sensors = zones.map((zo, zi) => ({ zone: zi, ...pickSpot(zo.idx), share: zo.idx.length / pts.length, idx: zo.idx }));
+  }
+
+  // Is a block clearly made of two different parts? Split it in two and keep the split only if it explains most
+  // of the variation, both parts are sizeable, and the block varies more than small noise.
+  function unevenSplit(idx) {
+    // Conditions only (not position), so a uniform block is never split just because it is long.
+    const Xb = idx.map((i) => featDims.map((d) => X[i][d])), c = featDims.map((_, d) => mean(Xb.map((x) => x[d])));
+    const total = Xb.reduce((s, x) => s + x.reduce((t, v, d) => t + (v - c[d]) ** 2, 0), 0);
+    let best = null; for (let s = 1; s <= 6; s++) { const r = kmeans(Xb, 2, s * 104729); if (!best || r.inertia < best.inertia) best = r; }
+    const a = idx.filter((_, n) => best.lab[n] === 0), b = idx.filter((_, n) => best.lab[n] === 1);
+    const gain = total > 0 ? 1 - best.inertia / total : 0, minShare = Math.min(a.length, b.length) / idx.length;
+    if (!(gain >= UNEVEN.gain && minShare >= UNEVEN.minShare && total / idx.length >= UNEVEN.spread)) return null;
+    const [main, other] = a.length >= b.length ? [a, b] : [b, a];
+    const diff = (arr) => mean(other.map((i) => arr[i])) - mean(main.map((i) => arr[i])), parts = [];
+    const dE = diff(T.elev); if (Math.abs(dE) >= 1) parts.push(`${fmt(Math.abs(dE), 1)} m ${dE < 0 ? "lower" : "higher"}`);
+    if (soil) { const dC = diff(soil.clay); if (Math.abs(dC) >= 2) parts.push(`${dC > 0 ? "heavier" : "lighter"} soil (${dC > 0 ? "+" : ""}${fmt(dC, 0)}% clay)`); }
+    if (ndvi) { const dN = diff(ndvi); if (Math.abs(dN) >= 0.05) parts.push(`${dN > 0 ? "stronger" : "weaker"} vegetation (NDVI ${dN > 0 ? "+" : ""}${fmt(dN, 2)})`); }
+    if (piv) { const dI = diff(piv.map((q) => (q.under ? 1 : 0))); if (Math.abs(dI) >= 0.5) parts.push(dI > 0 ? "under the pivot" : "outside the pivot"); }
+    const dT = diff(T.tpi); if (Math.abs(dT) >= 0.2) parts.push(dT < 0 ? "in a slight hollow" : "on a slight rise");
+    return { main, other, text: `about ${fmt((other.length / idx.length) * 100, 0)}% of the block differs from the rest${parts.length ? `: ${parts.join(", ")}` : ""}` };
+  }
+
+  const R = { G, pts, lab, T, soil, ndvi, ndviInfo: ndvi ? inp.ndvi : null, piv, irrigation: inp.irrigation, sensors, ha, notes, buffer, k, blocks };
   describe(R);
   return R;
 }
@@ -204,7 +251,10 @@ function describe(R) {
       if (q.under) why.push(`Under the pivot, ${fmt(q.d, 0)} m from the centre${q.spanNo ? ` (span ${q.spanNo})` : ""}${q.avoid ? "" : ", away from the centre, the end of the pivot and the wheel tracks"}.`);
       else why.push("Outside the pivot circle (not irrigated): useful to compare with the irrigated part.");
     }
-    why.push(`Represents zone ${s.zone + 1}, about ${fmt(s.share * 100, 0)}% of the field (${fmt(s.share * R.ha, 1)} ha). This is the point that best matches the zone's typical conditions${s.tier <= 2 ? `, at least ${R.buffer} m from the edge` : ""}.`);
+    const away = s.tier <= 2 ? `, at least ${R.buffer} m from the edge` : "";
+    if (s.block == null) why.push(`Represents zone ${s.zone + 1}, about ${fmt(s.share * 100, 0)}% of the field (${fmt(s.share * R.ha, 1)} ha). This is the point that best matches the zone's typical conditions${away}.`);
+    else if (s.optional) why.push(`Optional second probe for irrigation block ${s.block}: ${s.uneven}. It shows whether that part needs different watering; drop it if one probe per block is enough.`);
+    else why.push(`The probe for irrigation block ${s.block} (${fmt(s.blockHa, 1)} ha), at the point that best matches ${s.uneven ? "the main part of the block" : "the block's typical conditions"}${away}.${s.uneven ? ` The block is uneven (${s.uneven}), so an optional second probe is suggested.` : ""}`);
     s.lat = p.lat; s.lon = p.lon; s.why = why; s.tip = R.piv && !R.piv[s.i].under ? null : tip; s.edge = p.edge; s.name = `HS-${R.sensors.indexOf(s) + 1}`;
   }
   if (R.summary.flat && R.sensors.length > 1 && !R.soil && !R.ndvi) R.notes.push("This field looks uniform with the available data, so the spots are mainly spread out to cover it. Adding NDVI usually reveals more useful differences.");
@@ -238,11 +288,13 @@ function moveSensor(R, s, lat, lon) {
     else if (q.avoid) why.push(`Warning: ${AVOID_TEXT[q.avoid]} (${fmt(q.d, 0)} m from the centre). Readings or the cable may suffer here.`);
     else why.push(`Under the pivot, ${fmt(q.d, 0)} m from the centre${q.spanNo ? ` (span ${q.spanNo})` : ""}.`);
   }
-  why.push(R.lab[j] === s.zone ? `Still in zone ${s.zone + 1}, which it represents (about ${fmt(s.share * 100, 0)}% of the field).`
-    : `Warning: this point is in zone ${R.lab[j] + 1}, so it no longer represents zone ${s.zone + 1} (about ${fmt(s.share * 100, 0)}% of the field).`);
+  why.push(R.lab[j] === s.zone ? `Still in ${zoneName(R, s.zone)}, which it represents.`
+    : `Warning: this point is ${R.lab[j] < 0 ? "" : "in "}${zoneName(R, R.lab[j])}, so it no longer represents ${zoneName(R, s.zone)}.`);
   if (edge < R.buffer) why.push(`Warning: only ${fmt(edge, 0)} m from the field edge (${R.buffer} m recommended).`);
   Object.assign(s, { i: j, lat, lon, x, y, edge, why, moved: true, tip: q && !q.under ? null : irrigationTip(R.irrigation) });
 }
+// "zone 2", or "block North" when the spots follow irrigation blocks.
+function zoneName(R, z) { return R.blocks ? (z < 0 ? "outside the irrigation blocks" : `block ${R.blocks[z].name}`) : `zone ${z + 1}`; }
 function resetSensor(s) {
   if (!s.orig) return;
   Object.assign(s, s.orig, { moved: false });
