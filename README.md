@@ -18,7 +18,7 @@ It runs entirely in the browser: no server, no account, no API keys. Open `index
 | --- | --- | --- |
 | Elevation | Copernicus DEM GLO-90 via [Open-Meteo](https://open-meteo.com/en/docs/elevation-api) | 90 m |
 | Soil texture (analysis) | [ISRIC SoilGrids 2.0](https://www.isric.org/explore/soilgrids), 0–60 cm | 250 m |
-| Soil map (display, France) | INRAE / GIS Sol *carte des sols*, IGN Géoplateforme (`INRA.CARTE.SOLS`) | ~1:250 000 |
+| Soil maps (display) | ISRIC SoilGrids WMS: WRB soil type, clay 15–30 cm; link to the INRAE / GIS Sol *carte des sols* on cartes.gouv.fr | 250 m |
 | NDVI | Copernicus Sentinel-2 L2A COGs via [Earth Search](https://element84.com/earth-search/) (AWS open data) | 10 m |
 | Basemap | Esri World Imagery, OpenStreetMap | |
 
