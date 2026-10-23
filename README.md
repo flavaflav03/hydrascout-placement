@@ -8,11 +8,12 @@ It runs entirely in the browser: no server, no account, no API keys. Open `index
 
 1. **Field**: draw the boundary on the satellite map, or import a GeoJSON/KML file.
 2. **Crop vigour (NDVI)**: the app searches free Sentinel-2 L2A images of the last 14 months, checks the clouds over the field with the scene classification layer, and computes 10 m NDVI from the clearest image with full crop cover. Any other clear date can be picked, or a drone NDVI GeoTIFF uploaded instead.
-3. **Irrigation (optional)**: drip (emitter and line spacing, flow), micro-sprinkler or sprinkler (head spacing), centre pivot (centre, radius, span length), linear move, furrow/flood.
-4. **Analysis**: the field is sampled on a grid. Each point gets elevation, slope, relative position (hollow or rise), soil texture, NDVI and pivot coverage. Points are grouped into zones (k-means on standardised variables), and each sensor goes at the most typical point of its zone, away from the field edge, the pivot centre, the end of the pivot and tower wheel tracks.
-5. **Map key**: the soil map and NDVI each get a legend on the map. The soil key lists the most likely soil groups at the field (SoilGrids classification) with a plain description, and NDVI values are grouped into bare soil, sparse, moderate, dense and very dense. Tap the map to read the soil and NDVI at a spot.
-6. **Adjusting spots**: drag a numbered pin to move a sensor. Its notes are rewritten for the new point, with warnings when it leaves its zone, comes too close to the edge or sits on a pivot track; "Back to recommended spot" restores it.
-7. **Exports**: a printable placement report (reason for each spot, installation tip, blank fields for install date, depth and serial number), plus GPX, CSV and GeoJSON.
+3. **Irrigation blocks (optional)**: HSTI sizes a kit as one probe per irrigation block. Draw or import the blocks (GeoJSON/KML, one polygon per block): each block gets one probe at its most typical point, and a block made of two clearly different parts (terrain, soil, NDVI, pivot) gets an optional second probe with the difference explained. Without blocks, the number of probes is picked by hand (e.g. the number of blocks) or by field size.
+4. **Irrigation equipment (optional)**: drip (emitter and line spacing, flow), micro-sprinkler or sprinkler (head spacing), centre pivot (centre, radius, span length), linear move, furrow/flood.
+5. **Analysis**: the field is sampled on a grid. Each point gets elevation, slope, relative position (hollow or rise), soil texture, NDVI and pivot coverage. Points are grouped into zones (k-means on standardised variables), and each sensor goes at the most typical point of its zone, away from the field edge, the pivot centre, the end of the pivot and tower wheel tracks.
+6. **Map key**: the soil map and NDVI each get a legend on the map. The soil key lists the most likely soil groups at the field (SoilGrids classification) with a plain description, and NDVI values are grouped into bare soil, sparse, moderate, dense and very dense. Tap the map to read the soil and NDVI at a spot.
+7. **Adjusting spots**: drag a numbered pin to move a sensor. Its notes are rewritten for the new point, with warnings when it leaves its zone, comes too close to the edge or sits on a pivot track; "Back to recommended spot" restores it.
+8. **Exports**: a printable placement report (reason for each spot, installation tip, blank fields for install date, depth and serial number), plus GPX, CSV and GeoJSON.
 
 ## Data sources
 
