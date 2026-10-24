@@ -157,18 +157,24 @@ const EXAMPLE_FIELD = [[48.2862, 1.6043], [48.2871, 1.6121], [48.2832, 1.6139], 
 
 function clearResult() { const had = S.result; S.result = null; gridLayer.clearLayers(); sensorLayer.clearLayers(); $("results").hidden = true; if (had) roiDefaults(); }
 
-function setField(latlngs, { fit = true, example = false, fromBlocks = false } = {}) {
+function setField(latlngs, { fit = true, example = false, fromBlocks = false, keepNdvi = false } = {}) {
   S.field = latlngs; S.isExample = example; S.fieldFromBlocks = fromBlocks; clearResult(); renderKey();
   fieldLayer.clearLayers();
-  hideTimeline(); S.scenes = [];
-  if (S.ndvi && S.ndvi.source === "sentinel") clearNdvi("The field changed. Search satellite images again for the new boundary.");
-  else if (S.ndvi) { S.ndvi.overlay = null; showNdvi(S.ndvi); }
+  if (!keepNdvi) {
+    hideTimeline(); S.scenes = [];
+    if (S.ndvi && S.ndvi.source === "sentinel") clearNdvi("The blocks changed. Search satellite images again so they cover the new blocks.");
+    else if (S.ndvi) { S.ndvi.overlay = null; showNdvi(S.ndvi); }
+  } else if (S.ndvi) { S.ndvi.overlay = null; showNdvi(S.ndvi); }
   $("sceneBtn").disabled = !latlngs;
   if (!latlngs) { $("fieldInfo").textContent = "No field yet."; $("analyzeBtn").disabled = true; return; }
-  const poly = L.polygon(latlngs, { color: "#ffffff", weight: 2.5, fill: false, dashArray: example ? "6 6" : null }).addTo(fieldLayer);
+  // Blocks are drawn on their own, so the outline around them is not drawn again.
+  const poly = L.polygon(latlngs, { color: "#ffffff", weight: fromBlocks ? 0 : 2.5, fill: false, dashArray: example ? "6 6" : null, interactive: false });
+  if (!fromBlocks) poly.addTo(fieldLayer);
   if (fit) map.fitBounds(poly.getBounds(), { padding: [30, 30] });
   const c = centroidLatLng(latlngs);
-  $("fieldInfo").textContent = `${example ? "Example field · " : fromBlocks ? "Outline of the blocks · " : ""}${fieldAreaHa(latlngs).toFixed(2)} ha · ${latlngs.length} corners · centre ${c[0].toFixed(5)}, ${c[1].toFixed(5)}`;
+  $("fieldInfo").textContent = example ? "Example field shown: draw your blocks (or the whole field) to replace it."
+    : fromBlocks ? `Field = the ${S.blocks.filter((b) => b.ring).length} drawn block${S.blocks.filter((b) => b.ring).length > 1 ? "s" : ""}, ${fmt(S.blocks.filter((b) => b.ring).reduce((a, b) => a + fieldAreaHa(b.ring), 0), 2)} ha · centre ${c[0].toFixed(5)}, ${c[1].toFixed(5)}`
+    : `Whole field, ${fieldAreaHa(latlngs).toFixed(2)} ha · ${latlngs.length} corners · centre ${c[0].toFixed(5)}, ${c[1].toFixed(5)}`;
   $("soilLink").href = `https://cartes.gouv.fr/explorer-les-cartes/?c=${c[1].toFixed(5)},${c[0].toFixed(5)}&z=15&l=INRA.CARTE.SOLS$GEOPORTAIL:OGC:WMTS(1)&permalink=yes`;
   $("analyzeBtn").disabled = false;
   if (!example) { store.set("hs.field", latlngs); store.set("hs.fieldFromBlocks", fromBlocks); }
@@ -329,9 +335,8 @@ function renderDraft() {
     const mk = L.marker(p, { icon: L.divIcon({ className: "", html: '<div class="vertex-pin"></div>', iconSize: [12, 12], iconAnchor: [6, 6] }) }).addTo(draftLayer);
     if (i === 0) mk.on("click", (ev) => { L.DomEvent.stopPropagation(ev); finishDraw(); });
   });
-  $("undoBtn").hidden = !drawing; $("finishBtn").hidden = !drawing; $("finishBtn").disabled = n < 3;
-  if (drawing) drawbar(n < 3 ? `Tap the map to add the corners of the field (${n} so far)` : "Tap the first corner or Finish to close the field",
-    [["Undo", undoPoint, !n], ["Finish", finishDraw, n < 3]]);
+  if (drawing) drawbar(n < 3 ? `Field: tap the map to add its corners (${n} so far)` : "Field: tap the first corner or Finish to close it",
+    [["Undo", undoPoint, !n], ["Finish", finishDraw, n < 3], ["Cancel", () => setMode(null)]]);
   else if (block) {
     const which = `Block ${S.blocks[S.redraw].name}`;
     drawbar(n < 3 ? `${which}: tap the map to add its corners (${n} so far)` : `${which}: tap the first corner or Finish to close it`,
@@ -342,7 +347,6 @@ function setMode(mode, block = null) {
   S.mode = mode; S.draft = []; S.redraw = mode === "block" ? block : null;
   if (mode) map.doubleClickZoom.disable(); else map.doubleClickZoom.enable();
   map.getContainer().style.cursor = mode ? "crosshair" : "";
-  $("drawBtn").classList.toggle("active", mode === "draw"); $("drawBtn").textContent = mode === "draw" ? "Cancel" : "Draw boundary";
   $("pivCentreBtn").classList.toggle("active", mode === "pivot"); $("pivCentreBtn").textContent = mode === "pivot" ? "Cancel" : "Place pivot centre on map";
   renderDraft(); if (S.blocks) renderBlockRows();
   if (mode === "pivot") drawbar("Tap the pivot centre on the map");
@@ -351,49 +355,22 @@ function finishDraw() {
   if (S.draft.length < 3) return;
   const f = S.draft.slice(), bi = S.mode === "block" ? S.redraw : null;
   setMode(null);
-  if (bi == null) { setField(f, { fit: false }); return; }
+  if (bi == null) { setField(f, { fit: false }); renderBlockRows(); return; }
   S.blocks[bi].ring = f; blocksChanged();
 }
-$("drawBtn").addEventListener("click", () => setMode(S.mode === "draw" ? null : "draw"));
-$("undoBtn").addEventListener("click", undoPoint);
-$("finishBtn").addEventListener("click", finishDraw);
 map.on("click", (e) => {
   if (S.mode === "draw" || S.mode === "block") { S.draft.push([e.latlng.lat, e.latlng.lng]); renderDraft(); }
   else if (S.mode === "pivot") { irr.pivotCentre = [e.latlng.lat, e.latlng.lng]; setMode(null); updateIrrigation(); }
   else identify(e.latlng);
 });
 
-// ---------- import boundary ----------
-$("importFile").addEventListener("change", async (e) => {
-  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
-  try {
-    const txt = await f.text(); let ring = null;
-    if (/\.kml$/i.test(f.name) || txt.trim().startsWith("<")) {
-      const doc = new DOMParser().parseFromString(txt, "application/xml");
-      const c = doc.querySelector("Polygon outerBoundaryIs coordinates, Polygon coordinates, LineString coordinates");
-      if (c) ring = c.textContent.trim().split(/\s+/).map((t) => t.split(",").map(Number)).filter((a) => a.length >= 2).map(([lon, lat]) => [lat, lon]);
-      const nm = doc.querySelector("Placemark > name"); if (nm && !$("fieldName").value) $("fieldName").value = nm.textContent.trim();
-    } else {
-      const g = JSON.parse(txt);
-      const feat = g.type === "FeatureCollection" ? g.features.find((ft) => /Polygon/.test(ft.geometry && ft.geometry.type)) : g.type === "Feature" ? g : null;
-      const geom = feat ? feat.geometry : g;
-      if (geom && geom.type === "Polygon") ring = geom.coordinates[0];
-      else if (geom && geom.type === "MultiPolygon") ring = geom.coordinates[0][0];
-      if (ring) ring = ring.map(([lon, lat]) => [lat, lon]);
-      const nm = feat && feat.properties && (feat.properties.name || feat.properties.nom); if (nm && !$("fieldName").value) $("fieldName").value = nm;
-    }
-    if (!ring || ring.length < 3) throw new Error("no polygon");
-    const a = ring[0], b = ring[ring.length - 1]; if (a[0] === b[0] && a[1] === b[1]) ring.pop();
-    setMode(null); setField(ring); setStatus("");
-  } catch (err) { setStatus("Could not read a field boundary from that file. Use a GeoJSON or KML file containing one polygon in WGS84 (lat/lon).", true); }
-});
 $("fieldName").addEventListener("input", (e) => store.set("hs.fieldName", e.target.value));
 
 // ---------- NDVI ----------
 const NDVI_SCALE = [0, 0.9]; // fixed colour scale for satellite dates, so the timeline compares like with like
 function showNdvi(nd) {
   ndviLayer.clearLayers();
-  if (!nd.overlay && S.field) nd.overlay = ndviOverlay(nd, S.field, nd.source === "sentinel" ? NDVI_SCALE : null);
+  if (!nd.overlay && S.field) nd.overlay = ndviOverlay(nd, fieldRings(), nd.source === "sentinel" ? NDVI_SCALE : null);
   const ov = nd.overlay;
   if (ov) L.imageOverlay(ov.url, ov.bounds, { opacity: 0.9, interactive: false }).addTo(ndviLayer);
   $("ndviMeta").hidden = false;
@@ -423,7 +400,7 @@ $("ndviFile").addEventListener("change", async (e) => {
 // Timeline of clear Sentinel-2 dates (oldest → newest). Each date's NDVI is computed once and kept.
 const TL = { idx: 0, playing: false, token: 0, debounce: null };
 async function sceneNdvi(sc) {
-  if (!sc.nd) { sc.nd = await Sentinel.ndvi(sc, S.field); sc.nd.overlay = ndviOverlay(sc.nd, S.field, NDVI_SCALE); sc.mean = sc.nd.overlay ? sc.nd.overlay.mean : null; }
+  if (!sc.nd) { sc.nd = await Sentinel.ndvi(sc, S.field); sc.nd.overlay = ndviOverlay(sc.nd, fieldRings(), NDVI_SCALE); sc.mean = sc.nd.overlay ? sc.nd.overlay.mean : null; }
   return sc.nd;
 }
 function timelineLabel() {
@@ -537,24 +514,34 @@ $("pivCentreBtn").addEventListener("click", () => setMode(S.mode === "pivot" ? n
 
 // ---------- irrigation blocks ----------
 // HSTI sizes a probe kit as one probe per irrigation block, so blocks drive the number and place of the probes.
-// The block count in step 1 opens one row per block (name + Draw borders); a block counts once its borders are drawn.
+// The block count in step 2 opens one row per block (name + Draw borders); a block counts once its borders are drawn.
 const blockLayer = L.layerGroup().addTo(map);
 S.blocks = []; // [{ name, ring: [[lat, lon], …] or null }]
 const drawnBlocks = () => S.blocks.filter((b) => b.ring);
 function nextBlockName() { const used = new Set(S.blocks.map((b) => b.name)); for (let i = 0; ; i++) { const n = i < 26 ? String.fromCharCode(65 + i) : `B${i + 1}`; if (!used.has(n)) return n; } }
-// One row per block given in step 1. Fewer blocks drops the rows not drawn yet first.
+// One row per block given in step 2. Fewer blocks drops the rows not drawn yet first.
 function syncBlockRows() {
   const want = askedBlocks() || 0;
   while (S.blocks.length < want) S.blocks.push({ name: nextBlockName(), ring: null });
   while (S.blocks.length > want) { const k = S.blocks.map((b) => !b.ring).lastIndexOf(true); S.blocks.splice(k >= 0 ? k : S.blocks.length - 1, 1); }
 }
-// Blocks drawn without a field outline (or over the example field) also set the field: the outline around all of them.
+// The drawn blocks are the field: NDVI, soil and the analysis cover them (and only them). The field polygon is the
+// outline around all blocks, used to fetch data; the analysis grid keeps the points inside the blocks.
 function blocksChanged() {
   clearResult();
-  const d = drawnBlocks();
-  if (d.length && (S.isExample || S.fieldFromBlocks || !S.field)) setField(hullLatLng(d.flatMap((b) => b.ring)), { fit: false, fromBlocks: true });
+  syncFieldToBlocks();
   renderBlocks();
 }
+function syncFieldToBlocks() {
+  const d = drawnBlocks();
+  if (d.length) {
+    const hull = hullLatLng(d.flatMap((b) => b.ring));
+    if (!S.fieldFromBlocks || JSON.stringify(hull) !== JSON.stringify(S.field)) setField(hull, { fit: false, fromBlocks: true });
+    else setField(S.field, { fit: false, fromBlocks: true, keepNdvi: true });
+  } else if (S.fieldFromBlocks) setField(EXAMPLE_FIELD, { example: true });
+}
+// Pixels and grid points that count: inside the drawn blocks, or inside the field drawn as a whole.
+const fieldRings = () => (S.fieldFromBlocks ? drawnBlocks().map((b) => b.ring) : S.field ? [S.field] : []);
 // Colours follow the drawn blocks, as in the results.
 const blockColor = (b) => (b.ring ? zoneColor(drawnBlocks().indexOf(b)) : zoneColor(-1));
 function renderBlocks() {
@@ -572,8 +559,18 @@ function renderBlocks() {
   renderNeed(); roiDefaults();
 }
 function renderBlockRows() {
-  const box = $("blocksBox"), n = drawnBlocks().length, total = S.blocks.length, next = S.blocks.findIndex((b) => !b.ring);
-  box.hidden = !total;
+  const n = drawnBlocks().length, total = S.blocks.length, next = S.blocks.findIndex((b) => !b.ring);
+  if (!total) {
+    // No block count: one row to draw the whole field; the number of probes then follows its size.
+    const own = S.field && !S.isExample && !S.fieldFromBlocks, drawing = S.mode === "draw", label = drawing ? "Cancel" : own ? "Redraw" : "Draw borders";
+    $("blocksSummary").textContent = "No block count given: draw the whole field.";
+    $("blockList").innerHTML = `<li class="${own ? "drawn" : ""}"><i class="sw" style="background:#fff;border:1px solid var(--line)"></i><span class="row-name">Whole field</span>
+      <span class="ha">${own ? `${fmt(fieldAreaHa(S.field), 2)} ha` : "not drawn"}</span>
+      <button type="button" data-field="1" class="${drawing ? "active" : own || S.mode ? "" : "primary-lite"}">${label}</button></li>`;
+    $("blockFileBtn").firstChild.textContent = "Import field or blocks";
+    return;
+  }
+  $("blockFileBtn").firstChild.textContent = "Import blocks";
   $("blocksSummary").textContent = `Your ${total} block${total === 1 ? "" : "s"} · ${n === total ? (total > 1 ? "all drawn" : "drawn") : `${n} of ${total} drawn`}`;
   $("blockList").innerHTML = S.blocks.map((b, bi) => {
     const drawing = S.mode === "block" && S.redraw === bi, label = drawing ? "Cancel" : b.ring ? "Redraw" : "Draw borders";
@@ -582,7 +579,7 @@ function renderBlockRows() {
       <button type="button" data-draw="${bi}" class="${drawing ? "active" : bi === next && S.mode !== "block" ? "primary-lite" : ""}" aria-label="${label}: block ${escapeHtml(b.name)}">${label}</button></li>`;
   }).join("");
 }
-// The grower's own block count (step 1) frames the need: one probe per block. It sets the probe count when no
+// The grower's own block count (step 2) frames the need: one probe per block. It sets the probe count when no
 // block is drawn yet.
 function askedBlocks() { const v = Math.round(+$("nBlocks").value); return v >= 1 ? Math.min(v, 50) : null; }
 function renderNeed() {
@@ -594,13 +591,13 @@ function renderNeed() {
     } else if (sel.dataset.fromAsk) sel.value = "auto";
     sel.dataset.fromAsk = want ? "1" : "";
   }
-  $("countHint").textContent = drawn ? "One probe per block drawn in step 1, plus an optional one where a block is clearly uneven."
-    : want ? `Set from your answer in step 1: one probe per irrigation block. Without block borders the field is split into ${want} zone${want > 1 ? "s" : ""}, one probe each.`
+  $("countHint").textContent = drawn ? "One probe per block drawn in step 3, plus an optional one where a block is clearly uneven."
+    : want ? `Set from your answer in step 2: one probe per irrigation block. Without block borders the field is split into ${want} zone${want > 1 ? "s" : ""}, one probe each.`
     : "No block map? Pick the number of irrigation blocks here: one probe per block.";
   line.hidden = !want;
   if (!want) return;
   const probes = `<b>${want} probe${want > 1 ? "s" : ""}</b>, one per block`;
-  line.innerHTML = !drawn ? `You need ${probes}. Draw the borders of each block above so every probe lands inside its own block, away from its borders.`
+  line.innerHTML = !drawn ? `You need ${probes}. Draw the borders of each block in step 3 so every probe lands inside its own block, away from its borders.`
     : drawn < want ? `You need ${probes}. ${drawn} of ${want} blocks drawn: blocks without borders get no probe.`
     : `You need ${probes}. All ${want} blocks are drawn.`;
 }
@@ -614,6 +611,7 @@ $("blockList").addEventListener("input", (e) => {
   if (b.ring) blockLayer.getLayers()[drawnBlocks().indexOf(b)].setTooltipContent(escapeHtml(b.name));
 });
 $("blockList").addEventListener("click", (e) => {
+  if (e.target.dataset.field) { setMode(S.mode === "draw" ? null : "draw"); if (S.mode && window.innerWidth <= 760) $("mapwrap").scrollIntoView({ behavior: "smooth" }); return; }
   const d = e.target.dataset.draw; if (d == null) return;
   if (S.mode === "block" && S.redraw === +d) { setMode(null); return; }
   setMode("block", +d);
@@ -625,7 +623,11 @@ $("blockFile").addEventListener("change", async (e) => {
   try {
     const found = readPolygons(await f.text());
     if (!found.length) throw new Error("none");
-    if (S.mode === "block") setMode(null);
+    if (S.mode) setMode(null);
+    if (!S.blocks.length && found.length === 1) {
+      if (found[0].name && !$("fieldName").value) { $("fieldName").value = found[0].name; store.set("hs.fieldName", found[0].name); }
+      setField(found[0].ring); renderBlockRows(); setStatus("Field imported.", false, "searchStatus"); return;
+    }
     for (const p of found) {
       const row = S.blocks.find((b) => !b.ring);
       if (row) { row.ring = p.ring; if (p.name) row.name = p.name; } else S.blocks.push({ name: p.name || nextBlockName(), ring: p.ring });
@@ -633,7 +635,7 @@ $("blockFile").addEventListener("change", async (e) => {
     $("nBlocks").value = S.blocks.length; store.set("hs.nBlocks", S.blocks.length);
     blocksChanged();
     setStatus(`${found.length} irrigation block${found.length > 1 ? "s" : ""} imported.`, false, "searchStatus");
-  } catch (err) { setStatus("Could not read irrigation blocks from that file. Use a GeoJSON or KML file with one polygon per block, in WGS84 (lat/lon).", true, "searchStatus"); }
+  } catch (err) { setStatus("Could not read blocks from that file. Use a GeoJSON or KML file with one polygon per block (or one for the whole field), in WGS84 (lat/lon).", true, "searchStatus"); }
 });
 // Every polygon in a GeoJSON or KML file, as { name, ring: [[lat, lon], …] }.
 function readPolygons(txt) {
@@ -664,7 +666,7 @@ async function analyze() {
   if (!S.field) return;
   const btn = $("analyzeBtn"); btn.disabled = true;
   try {
-    const G = buildGrid(S.field), ha = G.area / 10000, pts = G.pts;
+    const G = buildGrid(S.field, S.fieldFromBlocks ? drawnBlocks().map((b) => b.ring) : null), ha = G.area / 10000, pts = G.pts;
     if (pts.length < 3) throw new Error("The field is too small to analyse. Draw a larger boundary.");
     const irrigation = readIrrigation();
     if (irrigation.type === "pivot" && (!irrigation.pivot.radius || irrigation.pivot.lat == null)) setStatus("Pivot centre or radius missing: the pivot is ignored for placement.");
@@ -724,7 +726,7 @@ function renderResult() {
       .bindPopup(`<b>${s.name}</b><br>${s.why.map(escapeHtml).join("<br>")}${s.tip ? `<br><i>${escapeHtml(s.tip)}</i>` : ""}`).addTo(sensorLayer);
     mk.on("dragend", () => {
       const ll = mk.getLatLng(), [x, y] = R.G.P.fwd(ll.lat, ll.lng);
-      if (!inPoly(x, y, R.G.poly)) { mk.setLatLng([s.lat, s.lon]); setStatus(`${s.name} must stay inside the field.`, true); return; }
+      if (!(R.blocks ? R.blocks.some((b) => inPoly(x, y, b.xy)) : inPoly(x, y, R.G.poly))) { mk.setLatLng([s.lat, s.lon]); setStatus(`${s.name} must stay inside ${R.blocks ? "a block" : "the field"}.`, true); return; }
       moveSensor(R, s, ll.lat, ll.lng); setStatus(`${s.name} moved. Its notes, the report and the exports use the new position.`);
       renderResult();
     });
@@ -854,6 +856,7 @@ $("dlGeo").onclick = () => S.result && exportGeoJson(S.result, exportCtx());
   if (Array.isArray(sb)) S.blocks = sb.filter((b) => b && typeof b.name === "string").map((b) => ({ name: b.name, ring: Array.isArray(b.ring) && b.ring.length >= 3 ? b.ring : null }));
   if (S.blocks.length && !askedBlocks()) $("nBlocks").value = S.blocks.length;
   syncBlockRows();
+  syncFieldToBlocks(); // drawn blocks always define the field (older saves could keep a separate outline)
   renderBlocks();
   if (!$("devSerial").value) $("devSerial").value = store.get("hs.devSerial") || "";
   readDeviceHash();

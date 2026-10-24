@@ -1,17 +1,21 @@
 "use strict";
 // Placement analysis: sampling grid, terrain derivatives, zoning (k-means) and spot selection.
 
-function buildGrid(field) {
+// blocks (optional): when the field is made of irrigation blocks, only points inside a block are kept, and each
+// point's edge distance is to its own block's border.
+function buildGrid(field, blocks = null) {
   const c = centroidLatLng(field), P = makeProj(c[0], c[1]);
-  const poly = field.map(([a, b]) => P.fwd(a, b)), area = polyArea(poly);
+  const poly = field.map(([a, b]) => P.fwd(a, b)), rings = blocks && blocks.map((r) => r.map(([a, b]) => P.fwd(a, b)));
+  const area = rings ? rings.reduce((s, r) => s + polyArea(r), 0) : polyArea(poly);
   const xs = poly.map((p) => p[0]), ys = poly.map((p) => p[1]);
   const bx = [Math.min(...xs), Math.max(...xs)], by = [Math.min(...ys), Math.max(...ys)];
   let spacing = Math.max(8, Math.min(150, Math.sqrt(area / 220))), pts = [];
   for (let tries = 0; tries < 4; tries++) {
     pts = [];
     for (let y = by[0] + spacing / 2; y < by[1]; y += spacing) for (let x = bx[0] + spacing / 2; x < bx[1]; x += spacing) {
-      if (!inPoly(x, y, poly)) continue;
-      const [lat, lon] = P.inv(x, y); pts.push({ x, y, lat, lon, edge: edgeDist(x, y, poly) });
+      const r = rings ? rings.find((q) => inPoly(x, y, q)) : inPoly(x, y, poly) && poly;
+      if (!r) continue;
+      const [lat, lon] = P.inv(x, y); pts.push({ x, y, lat, lon, edge: edgeDist(x, y, r) });
     }
     if (pts.length >= 40 || spacing <= 4) break;
     spacing /= 1.6;
@@ -275,7 +279,7 @@ function moveSensor(R, s, lat, lon) {
   if (!s.orig) s.orig = { i: s.i, lat: s.lat, lon: s.lon, why: s.why, tip: s.tip, edge: s.edge };
   const P = R.G.P, [x, y] = P.fwd(lat, lon), [ox, oy] = P.fwd(s.orig.lat, s.orig.lon);
   const j = R.pts.reduce((b, p, k) => (Math.hypot(p.x - x, p.y - y) < Math.hypot(R.pts[b].x - x, R.pts[b].y - y) ? k : b), 0);
-  const sm = R.summary, E = R.T.elev, eRange = sm.eMax - sm.eMin, fieldEdge = edgeDist(x, y, R.G.poly);
+  const sm = R.summary, E = R.T.elev, eRange = sm.eMax - sm.eMin, fieldEdge = R.blocks ? Infinity : edgeDist(x, y, R.G.poly); // with blocks, the field is the blocks
   const ring = R.blocks && s.zone >= 0 && R.blocks[s.zone].xy, inBlock = ring && inPoly(x, y, ring);
   const blockEdge = inBlock ? edgeDist(x, y, ring) : Infinity, edge = Math.min(fieldEdge, blockEdge);
   const why = [`Moved by hand, ${fmt(Math.hypot(x - ox, y - oy), 0)} m from the recommended spot.`];

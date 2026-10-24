@@ -123,10 +123,11 @@ function sampleRaster(n, lat, lon, radius = 1) {
 
 // Colour image of an NDVI raster clipped to the field, for display as a map overlay.
 // With `range` ([lo, hi]) colours use a fixed scale, so images from different dates can be compared.
-function ndviOverlay(n, field, range) {
-  const ring = field.map(([lat, lon]) => toCrs(n.def, lat, lon));
+// rings: the areas shown (the drawn blocks, or the whole field).
+function ndviOverlay(n, rings, range) {
+  const rs = rings.map((r) => r.map(([lat, lon]) => toCrs(n.def, lat, lon)));
   const [x0, y0, x1, y1] = n.bbox, rx = (x1 - x0) / n.w, ry = (y1 - y0) / n.h;
-  const inside = []; for (let j = 0; j < n.h; j++) for (let i = 0; i < n.w; i++) { const v = n.data[j * n.w + i]; if (!Number.isNaN(v) && inPoly(x0 + (i + 0.5) * rx, y1 - (j + 0.5) * ry, ring)) inside.push(j * n.w + i); }
+  const inside = []; for (let j = 0; j < n.h; j++) for (let i = 0; i < n.w; i++) { const v = n.data[j * n.w + i], x = x0 + (i + 0.5) * rx, y = y1 - (j + 0.5) * ry; if (!Number.isNaN(v) && rs.some((r) => inPoly(x, y, r))) inside.push(j * n.w + i); }
   if (!inside.length) return null;
   const vals = inside.map((k) => n.data[k]).sort((a, b) => a - b);
   const lo = vals[Math.floor(vals.length * 0.02)], hi = vals[Math.ceil(vals.length * 0.98) - 1];
