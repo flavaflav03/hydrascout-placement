@@ -122,28 +122,39 @@ function liftKey() {
 }
 map.on("layeradd layerremove resize", liftKey);
 
-// Tap the map: soil group and/or NDVI at that spot.
+// Tap the map: NDVI (when an image is shown) and the soil at that spot, whatever map layer is on.
+// SoilGrids is a 250 m grid and allows about 5 calls a minute, so answers are kept per ~200 m cell.
+const soilCache = new Map();
+function soilAt(latlng) {
+  const key = `${latlng.lat.toFixed(3)},${latlng.lng.toFixed(3)}`;
+  if (!soilCache.has(key)) {
+    const p = Promise.allSettled([fetchWrb(latlng.lat, latlng.lng, 3), fetchSoil(latlng.lat, latlng.lng)]);
+    soilCache.set(key, p);
+    p.then((r) => { if (r.some((x) => x.status === "rejected")) soilCache.delete(key); });
+  }
+  return soilCache.get(key);
+}
 async function identify(latlng) {
-  const k = soilOn(), nd = S.ndvi && S.ndvi.overlay ? S.ndvi : null;
-  if (!k && !nd) return;
+  const nd = S.ndvi && S.ndvi.overlay ? S.ndvi : null;
   const lines = [];
   if (nd) {
     const v = sampleRaster(nd, latlng.lat, latlng.lng, 0);
     lines.push(v == null ? "NDVI: no value here (outside the field or under cloud)" : `${swatch(ndviColour(v))} NDVI <b>${fmt(v, 2)}</b>: ${ndviBand(v)[2].toLowerCase()}`);
   }
-  const pop = L.popup({ maxWidth: 280 }).setLatLng(latlng).setContent(`<div class="ident">${[...lines, k ? "Soil: loading…" : ""].filter(Boolean).join("<br>")}</div>`).openOn(map);
-  if (!k) return;
-  let soil;
-  try {
-    if (k === "wrb") {
-      const r = await fetchWrb(latlng.lat, latlng.lng, 3);
-      soil = r.length ? r.map((c, i) => `${swatch((WRB[c.name] || ["#ccc"])[0])} ${i ? "" : "<b>"}${escapeHtml(c.name)}${i ? "" : "</b>"}${c.p != null ? ` ${c.p} %` : ""}${i ? "" : `<br><span class="desc">${escapeHtml((WRB[c.name] || [, ""])[1])}</span>`}`).join("<br>") : "Soil: no data here";
-    } else {
-      const v = await fetchSoil(latlng.lat, latlng.lng);
-      soil = v ? `Clay <b>${fmt(v.clay, 0)} %</b>, sand ${fmt(v.sand, 0)} %, silt ${fmt(v.silt, 0)} % (0–60 cm, ${textureClass(v.sand, v.silt, v.clay)})` : "Soil: no data here";
-    }
-  } catch (err) { soil = escapeHtml(err.message); }
-  pop.setContent(`<div class="ident">${[...lines, soil].join("<br>")}</div>`);
+  const pop = L.popup({ maxWidth: 280 }).setLatLng(latlng).setContent(`<div class="ident">${[...lines, "Soil: loading…"].join("<br>")}</div>`).openOn(map);
+  const [wrb, tex] = await soilAt(latlng);
+  const soil = [];
+  if (wrb.status === "fulfilled") {
+    const r = wrb.value;
+    soil.push(r.length ? r.map((c, i) => `${swatch((WRB[c.name] || ["#ccc"])[0])} ${i ? "" : "Soil type <b>"}${escapeHtml(c.name)}${i ? "" : "</b>"}${c.p != null ? ` ${c.p} %` : ""}${i ? "" : `<br><span class="desc">${escapeHtml((WRB[c.name] || [, ""])[1])}</span>`}`).join("<br>") : "Soil type: no data here");
+  }
+  if (tex.status === "fulfilled") {
+    const v = tex.value;
+    soil.push(v ? `Clay <b>${fmt(v.clay, 0)} %</b>, sand ${fmt(v.sand, 0)} %, silt ${fmt(v.silt, 0)} % (0–60 cm, ${textureClass(v.sand, v.silt, v.clay)})` : "Texture: no data here");
+  }
+  if (!soil.length) soil.push(escapeHtml(wrb.reason.message));
+  else if (soil.length < 2) soil.push("<span class=\"desc\">Part of the soil data did not load: the service is busy, tap again in a minute.</span>");
+  pop.setContent(`<div class="ident">${[...lines, ...soil].join("<br>")}</div>`);
 }
 
 const ndviLayer = L.layerGroup().addTo(map);
