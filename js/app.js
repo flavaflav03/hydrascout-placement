@@ -17,7 +17,15 @@ const SOIL_MAPS = {
   wrb: { url: "https://maps.isric.org/mapserv/wrb", layer: "MostProbable" },
   clay: { url: "https://maps.isric.org/mapserv/clay", layer: "clay_15-30cm_mean" },
 };
-const soilLayers = Object.fromEntries(Object.entries(SOIL_MAPS).map(([k, m]) => [k, L.tileLayer.wms(m.url, { layers: m.layer, styles: "", format: "image/png", transparent: true, version: "1.3.0", opacity: 0.6, maxZoom: 19, attribution: SOIL_ATTR })]));
+// The soil maps sit in their own pane, clipped to the drawn blocks (or the whole field) so they show only there.
+const soilPane = map.createPane("soil"); soilPane.style.zIndex = 350;
+const soilLayers = Object.fromEntries(Object.entries(SOIL_MAPS).map(([k, m]) => [k, L.tileLayer.wms(m.url, { layers: m.layer, styles: "", format: "image/png", transparent: true, version: "1.3.0", opacity: 0.6, maxZoom: 19, attribution: SOIL_ATTR, pane: "soil" })]));
+// Pane coordinates are Leaflet layer points, which change on every zoom, so the clip is rebuilt then.
+function clipSoil() {
+  const rings = S.field && !S.isExample ? fieldRings() : [];
+  soilPane.style.clipPath = rings.length ? `path("${rings.map((r) => r.map((ll, i) => { const p = map.latLngToLayerPoint(ll); return `${i ? "L" : "M"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`; }).join(" ") + " Z").join(" ")}")` : "";
+}
+map.on("zoomend viewreset", clipSoil);
 function showSoilMap(key) {
   Object.values(soilLayers).forEach((l) => map.removeLayer(l));
   if (SOIL_MAPS[key]) soilLayers[key].addTo(map);
@@ -178,7 +186,7 @@ function setField(latlngs, { fit = true, example = false, fromBlocks = false, ke
   $("soilLink").href = `https://cartes.gouv.fr/explorer-les-cartes/?c=${c[1].toFixed(5)},${c[0].toFixed(5)}&z=15&l=INRA.CARTE.SOLS$GEOPORTAIL:OGC:WMTS(1)&permalink=yes`;
   $("analyzeBtn").disabled = false;
   if (!example) { store.set("hs.field", latlngs); store.set("hs.fieldFromBlocks", fromBlocks); }
-  roiDefaults();
+  roiDefaults(); clipSoil();
 }
 
 // ---------- search ----------
@@ -556,7 +564,7 @@ function renderBlocks() {
   if (n) sel.value = "auto";
   $("autoOpt").textContent = n ? `One per irrigation block (${n})` : "Auto (by field size)";
   store.set("hs.blocks", S.blocks);
-  renderNeed(); roiDefaults();
+  renderNeed(); roiDefaults(); clipSoil();
 }
 function renderBlockRows() {
   const n = drawnBlocks().length, total = S.blocks.length, next = S.blocks.findIndex((b) => !b.ring);
