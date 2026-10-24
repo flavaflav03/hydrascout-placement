@@ -64,7 +64,7 @@ function fieldSvg(R, ctx) {
   const sens = R.sensors.map((s) => { const [px, py] = P.fwd(s.lat, s.lon); return `<g><circle cx="${X(px)}" cy="${Y(py)}" r="11" fill="${zoneColor(s.zone)}" stroke="#fff" stroke-width="2.5"/><text x="${X(px)}" y="${Y(py) + 4.5}" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">${R.sensors.indexOf(s) + 1}</text></g>`; }).join("");
   const nice = [10, 20, 50, 100, 200, 500, 1000].find((m) => m * sc > 60) || 1000;
   return `<svg viewBox="0 0 ${W} ${H.toFixed(0)}" width="100%" role="img" aria-label="Field plan with sensor positions" style="max-width:${W}px;background:#f3f5f1;border-radius:6px">
-    ${cells}${pivot}<polygon points="${ring.map((p) => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" ")}" fill="none" stroke="#1d2a22" stroke-width="2"/>${sens}
+    ${cells}${pivot}${(R.blocks ? R.blocks.map((b) => b.xy) : [ring]).map((r) => `<polygon points="${r.map((p) => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" ")}" fill="none" stroke="#1d2a22" stroke-width="2"/>`).join("")}${sens}
     <g transform="translate(${W - 30},28)"><path d="M0,-16 L7,6 L0,1 L-7,6 Z" fill="#1d2a22"/><text y="20" text-anchor="middle" font-size="12" fill="#1d2a22">N</text></g>
     <g transform="translate(14,${H - 14})"><rect width="${nice * sc}" height="4" fill="#1d2a22"/><text y="-5" font-size="11" fill="#1d2a22">${nice} m</text></g></svg>`;
 }
