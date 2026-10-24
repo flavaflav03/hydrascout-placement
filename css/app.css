@@ -198,3 +198,19 @@ footer { font-size: 12px; color: var(--muted); margin-top: auto; }
 .roi-table thead th { font-weight: 600; }
 .roi-table td:nth-child(3), .roi-table thead th:nth-child(3) { background: var(--chip); }
 .roi-headline { padding: 10px 12px; border-radius: 6px; background: var(--chip); border-left: 3px solid var(--accent); }
+/* Tabs: probe placement / return on investment */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tabs button { background: none; border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 10px 8px; color: var(--muted); font-weight: 600; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+#panel[data-tab="roi"] > section.step:not(#roiStep) { display: none; }
+#panel[data-tab="place"] > #roiStep { display: none; }
+/* Block rows in step 1 */
+.blocks-box { display: flex; flex-direction: column; gap: 8px; }
+.blocks-box summary { cursor: pointer; font-weight: 600; font-size: 14px; padding: 4px 0; }
+.blocks-box[open] summary { margin-bottom: 8px; }
+.blocks-box > * + * { margin-top: 8px; }
+.block-list li { flex-wrap: nowrap; }
+.block-list li input { width: 0; flex: 1 1 90px; }
+.block-list li button { white-space: nowrap; flex: none; }
+.block-list li .ha { min-width: 56px; text-align: right; }
+.block-list button.primary-lite { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }

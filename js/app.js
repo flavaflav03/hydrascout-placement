@@ -330,40 +330,30 @@ function renderDraft() {
     if (i === 0) mk.on("click", (ev) => { L.DomEvent.stopPropagation(ev); finishDraw(); });
   });
   $("undoBtn").hidden = !drawing; $("finishBtn").hidden = !drawing; $("finishBtn").disabled = n < 3;
-  $("blockUndo").hidden = !block; $("blockFinish").hidden = !block; $("blockFinish").disabled = n < 3;
   if (drawing) drawbar(n < 3 ? `Tap the map to add the corners of the field (${n} so far)` : "Tap the first corner or Finish to close the field",
     [["Undo", undoPoint, !n], ["Finish", finishDraw, n < 3]]);
   else if (block) {
-    const want = askedBlocks(), redraw = S.redraw != null, name = redraw ? S.blocks[S.redraw].name : nextBlockName();
-    const which = `${redraw ? "Redraw block" : "Block"} ${name}${!redraw && want ? ` (${S.blocks.length + 1} of ${want})` : ""}`;
-    drawbar(n < 3 ? `${which}: tap the map to add its corners (${n} so far)` : `${which}: tap the first corner or Finish block to close it`,
-      [["Undo", undoPoint, !n], ["Finish block", finishDraw, n < 3], [redraw ? "Cancel" : "Done", stopBlocks]]);
+    const which = `Block ${S.blocks[S.redraw].name}`;
+    drawbar(n < 3 ? `${which}: tap the map to add its corners (${n} so far)` : `${which}: tap the first corner or Finish to close it`,
+      [["Undo", undoPoint, !n], ["Finish", finishDraw, n < 3], ["Cancel", () => setMode(null)]]);
   } else drawbar("");
 }
-function setMode(mode) {
-  S.mode = mode; S.draft = []; S.redraw = null;
+function setMode(mode, block = null) {
+  S.mode = mode; S.draft = []; S.redraw = mode === "block" ? block : null;
   if (mode) map.doubleClickZoom.disable(); else map.doubleClickZoom.enable();
   map.getContainer().style.cursor = mode ? "crosshair" : "";
   $("drawBtn").classList.toggle("active", mode === "draw"); $("drawBtn").textContent = mode === "draw" ? "Cancel" : "Draw boundary";
-  $("blockBtn").classList.toggle("active", mode === "block"); $("blockBtn").textContent = mode === "block" ? "Done" : S.blocks.length ? "Draw more blocks" : "Draw blocks";
   $("pivCentreBtn").classList.toggle("active", mode === "pivot"); $("pivCentreBtn").textContent = mode === "pivot" ? "Cancel" : "Place pivot centre on map";
-  renderDraft();
+  renderDraft(); if (S.blocks) renderBlockRows();
   if (mode === "pivot") drawbar("Tap the pivot centre on the map");
 }
-// Blocks are drawn one after the other: finishing a block starts the next one, until Done
-// (or until the number of blocks given in step 1 is reached).
 function finishDraw() {
   if (S.draft.length < 3) return;
-  const f = S.draft.slice();
-  if (S.mode !== "block") { setMode(null); setField(f, { fit: false }); return; }
-  if (S.redraw != null) { S.blocks[S.redraw].ring = f; setMode(null); blocksChanged(); return; }
-  S.blocks.push({ name: nextBlockName(), ring: f }); blocksChanged();
-  const want = askedBlocks();
-  if (want && S.blocks.length >= want) { setMode(null); setStatus(`All ${want} irrigation block${want > 1 ? "s are" : " is"} drawn.`); }
-  else { S.draft = []; renderDraft(); }
+  const f = S.draft.slice(), bi = S.mode === "block" ? S.redraw : null;
+  setMode(null);
+  if (bi == null) { setField(f, { fit: false }); return; }
+  S.blocks[bi].ring = f; blocksChanged();
 }
-// Done: a block with at least three corners is kept, a shorter one is dropped.
-function stopBlocks() { if (S.redraw == null && S.draft.length >= 3) finishDraw(); if (S.mode === "block") setMode(null); }
 $("drawBtn").addEventListener("click", () => setMode(S.mode === "draw" ? null : "draw"));
 $("undoBtn").addEventListener("click", undoPoint);
 $("finishBtn").addEventListener("click", finishDraw);
@@ -547,42 +537,56 @@ $("pivCentreBtn").addEventListener("click", () => setMode(S.mode === "pivot" ? n
 
 // ---------- irrigation blocks ----------
 // HSTI sizes a probe kit as one probe per irrigation block, so blocks drive the number and place of the probes.
+// The block count in step 1 opens one row per block (name + Draw borders); a block counts once its borders are drawn.
 const blockLayer = L.layerGroup().addTo(map);
-S.blocks = [];
+S.blocks = []; // [{ name, ring: [[lat, lon], …] or null }]
+const drawnBlocks = () => S.blocks.filter((b) => b.ring);
 function nextBlockName() { const used = new Set(S.blocks.map((b) => b.name)); for (let i = 0; ; i++) { const n = i < 26 ? String.fromCharCode(65 + i) : `B${i + 1}`; if (!used.has(n)) return n; } }
-function addBlocks(list) { S.blocks.push(...list); blocksChanged(); }
+// One row per block given in step 1. Fewer blocks drops the rows not drawn yet first.
+function syncBlockRows() {
+  const want = askedBlocks() || 0;
+  while (S.blocks.length < want) S.blocks.push({ name: nextBlockName(), ring: null });
+  while (S.blocks.length > want) { const k = S.blocks.map((b) => !b.ring).lastIndexOf(true); S.blocks.splice(k >= 0 ? k : S.blocks.length - 1, 1); }
+}
 // Blocks drawn without a field outline (or over the example field) also set the field: the outline around all of them.
 function blocksChanged() {
   clearResult();
-  if (S.blocks.length && (S.isExample || S.fieldFromBlocks || !S.field)) setField(hullLatLng(S.blocks.flatMap((b) => b.ring)), { fit: false, fromBlocks: true });
+  const d = drawnBlocks();
+  if (d.length && (S.isExample || S.fieldFromBlocks || !S.field)) setField(hullLatLng(d.flatMap((b) => b.ring)), { fit: false, fromBlocks: true });
   renderBlocks();
 }
+// Colours follow the drawn blocks, as in the results.
+const blockColor = (b) => (b.ring ? zoneColor(drawnBlocks().indexOf(b)) : zoneColor(-1));
 function renderBlocks() {
   blockLayer.clearLayers();
-  S.blocks.forEach((b, bi) => {
-    L.polygon(b.ring, { color: zoneColor(bi), weight: 2.5, fillOpacity: 0.12, dashArray: "4 4", interactive: false }).addTo(blockLayer)
+  drawnBlocks().forEach((b) => {
+    L.polygon(b.ring, { color: blockColor(b), weight: 2.5, fillOpacity: 0.12, dashArray: "4 4", interactive: false }).addTo(blockLayer)
       .bindTooltip(escapeHtml(b.name), { permanent: true, direction: "center", offset: [0, -34], className: "block-label" });
   });
-  const ul = $("blockList"); ul.hidden = !S.blocks.length;
-  ul.innerHTML = S.blocks.map((b, bi) => {
-    const P = makeProj(...centroidLatLng(b.ring)), ha = polyArea(b.ring.map(([a, c]) => P.fwd(a, c))) / 10000;
-    return `<li><i class="sw" style="background:${zoneColor(bi)}"></i><input type="text" value="${escapeHtml(b.name)}" data-i="${bi}" aria-label="Block name" maxlength="30"><span class="ha">${fmt(ha, 2)} ha</span><button type="button" data-redraw="${bi}" aria-label="Redraw block ${escapeHtml(b.name)}">Redraw</button><button type="button" data-del="${bi}" aria-label="Delete block ${escapeHtml(b.name)}">Delete</button></li>`;
-  }).join("");
-  const n = S.blocks.length, sel = $("nSensors");
+  renderBlockRows();
+  const n = drawnBlocks().length, sel = $("nSensors");
   sel.disabled = n > 0;
   if (n) sel.value = "auto";
   $("autoOpt").textContent = n ? `One per irrigation block (${n})` : "Auto (by field size)";
-  if (S.mode !== "block") $("blockBtn").textContent = n ? "Draw more blocks" : "Draw blocks";
-  const want = askedBlocks(), bc = $("blockCount"); bc.hidden = !n && !want;
-  bc.textContent = !n ? `No block drawn yet (${want} expected)` : `${n} block${n === 1 ? "" : "s"} drawn${want ? ` of ${want}` : ""} · ${fmt(S.blocks.reduce((a, b) => a + fieldAreaHa(b.ring), 0), 2)} ha`;
   store.set("hs.blocks", S.blocks);
   renderNeed(); roiDefaults();
 }
+function renderBlockRows() {
+  const box = $("blocksBox"), n = drawnBlocks().length, total = S.blocks.length, next = S.blocks.findIndex((b) => !b.ring);
+  box.hidden = !total;
+  $("blocksSummary").textContent = `Your ${total} block${total === 1 ? "" : "s"} · ${n === total ? (total > 1 ? "all drawn" : "drawn") : `${n} of ${total} drawn`}`;
+  $("blockList").innerHTML = S.blocks.map((b, bi) => {
+    const drawing = S.mode === "block" && S.redraw === bi, label = drawing ? "Cancel" : b.ring ? "Redraw" : "Draw borders";
+    return `<li class="${b.ring ? "drawn" : ""}"><i class="sw" style="background:${blockColor(b)}"></i><input type="text" value="${escapeHtml(b.name)}" data-i="${bi}" aria-label="Name of block ${bi + 1}" maxlength="30">
+      <span class="ha">${b.ring ? `${fmt(fieldAreaHa(b.ring), 2)} ha` : "not drawn"}</span>
+      <button type="button" data-draw="${bi}" class="${drawing ? "active" : bi === next && S.mode !== "block" ? "primary-lite" : ""}" aria-label="${label}: block ${escapeHtml(b.name)}">${label}</button></li>`;
+  }).join("");
+}
 // The grower's own block count (step 1) frames the need: one probe per block. It sets the probe count when no
-// block map is drawn, and is checked against the blocks drawn in step 3.
-function askedBlocks() { const v = Math.round(+$("nBlocks").value); return v >= 1 ? Math.min(v, 200) : null; }
+// block is drawn yet.
+function askedBlocks() { const v = Math.round(+$("nBlocks").value); return v >= 1 ? Math.min(v, 50) : null; }
 function renderNeed() {
-  const want = askedBlocks(), drawn = S.blocks.length, sel = $("nSensors"), line = $("needLine");
+  const want = askedBlocks(), drawn = drawnBlocks().length, sel = $("nSensors"), line = $("needLine");
   if (!drawn) {
     if (want) {
       if (![...sel.options].some((o) => o.value === String(want))) sel.add(new Option(String(want), String(want)));
@@ -590,35 +594,46 @@ function renderNeed() {
     } else if (sel.dataset.fromAsk) sel.value = "auto";
     sel.dataset.fromAsk = want ? "1" : "";
   }
-  $("countHint").textContent = drawn ? "One probe per block drawn in step 3, plus an optional one where a block is clearly uneven."
-    : want ? `Set from your answer in step 1: one probe per irrigation block. Without a block map the field is split into ${want} zone${want > 1 ? "s" : ""}, one probe each.`
+  $("countHint").textContent = drawn ? "One probe per block drawn in step 1, plus an optional one where a block is clearly uneven."
+    : want ? `Set from your answer in step 1: one probe per irrigation block. Without block borders the field is split into ${want} zone${want > 1 ? "s" : ""}, one probe each.`
     : "No block map? Pick the number of irrigation blocks here: one probe per block.";
   line.hidden = !want;
   if (!want) return;
   const probes = `<b>${want} probe${want > 1 ? "s" : ""}</b>, one per block`;
-  line.innerHTML = !drawn ? `You need ${probes}. In step 3, draw ${want > 1 ? `the ${want} blocks one after the other` : "the block"} on the map, so every probe lands inside its own block, away from its borders.`
-    : drawn < want ? `You need ${probes}. ${drawn} of ${want} blocks drawn in step 3: draw the others, or the missing blocks get no probe.`
-    : drawn > want ? `${drawn} blocks drawn in step 3, more than the ${want} you gave: the app places <b>${drawn} probes</b>, one per drawn block.`
-    : `You need ${probes}. All ${want} blocks are drawn in step 3.`;
+  line.innerHTML = !drawn ? `You need ${probes}. Draw the borders of each block above so every probe lands inside its own block, away from its borders.`
+    : drawn < want ? `You need ${probes}. ${drawn} of ${want} blocks drawn: blocks without borders get no probe.`
+    : `You need ${probes}. All ${want} blocks are drawn.`;
 }
-$("nBlocks").addEventListener("input", () => { store.set("hs.nBlocks", askedBlocks()); clearResult(); renderBlocks(); if (S.mode === "block") renderDraft(); });
-$("blockList").addEventListener("input", (e) => { const i = e.target.dataset.i; if (i == null) return; S.blocks[+i].name = e.target.value.trim() || nextBlockName(); clearResult(); store.set("hs.blocks", S.blocks); blockLayer.getLayers()[+i].setTooltipContent(escapeHtml(S.blocks[+i].name)); });
-$("blockList").addEventListener("click", (e) => {
-  const { del, redraw } = e.target.dataset;
-  if (del != null) { if (S.mode === "block") setMode(null); S.blocks.splice(+del, 1); blocksChanged(); }
-  else if (redraw != null) { setMode("block"); S.redraw = +redraw; renderDraft(); }
+$("nBlocks").addEventListener("input", () => {
+  if (S.mode === "block") setMode(null);
+  store.set("hs.nBlocks", askedBlocks()); syncBlockRows(); blocksChanged();
 });
-$("blockBtn").addEventListener("click", () => (S.mode === "block" ? stopBlocks() : setMode("block")));
-$("blockUndo").addEventListener("click", undoPoint);
-$("blockFinish").addEventListener("click", finishDraw);
+$("blockList").addEventListener("input", (e) => {
+  const i = e.target.dataset.i; if (i == null) return;
+  const b = S.blocks[+i]; b.name = e.target.value.trim() || nextBlockName(); clearResult(); store.set("hs.blocks", S.blocks);
+  if (b.ring) blockLayer.getLayers()[drawnBlocks().indexOf(b)].setTooltipContent(escapeHtml(b.name));
+});
+$("blockList").addEventListener("click", (e) => {
+  const d = e.target.dataset.draw; if (d == null) return;
+  if (S.mode === "block" && S.redraw === +d) { setMode(null); return; }
+  setMode("block", +d);
+  if (window.innerWidth <= 760) $("mapwrap").scrollIntoView({ behavior: "smooth" });
+});
+// Imported blocks fill the rows not drawn yet, then add rows; the block count follows.
 $("blockFile").addEventListener("change", async (e) => {
   const f = e.target.files[0]; e.target.value = ""; if (!f) return;
   try {
     const found = readPolygons(await f.text());
     if (!found.length) throw new Error("none");
-    addBlocks(found.map((p) => ({ name: p.name || nextBlockName(), ring: p.ring })));
-    setStatus(`${found.length} irrigation block${found.length > 1 ? "s" : ""} imported.`);
-  } catch (err) { setStatus("Could not read irrigation blocks from that file. Use a GeoJSON or KML file with one polygon per block, in WGS84 (lat/lon).", true); }
+    if (S.mode === "block") setMode(null);
+    for (const p of found) {
+      const row = S.blocks.find((b) => !b.ring);
+      if (row) { row.ring = p.ring; if (p.name) row.name = p.name; } else S.blocks.push({ name: p.name || nextBlockName(), ring: p.ring });
+    }
+    $("nBlocks").value = S.blocks.length; store.set("hs.nBlocks", S.blocks.length);
+    blocksChanged();
+    setStatus(`${found.length} irrigation block${found.length > 1 ? "s" : ""} imported.`, false, "searchStatus");
+  } catch (err) { setStatus("Could not read irrigation blocks from that file. Use a GeoJSON or KML file with one polygon per block, in WGS84 (lat/lon).", true, "searchStatus"); }
 });
 // Every polygon in a GeoJSON or KML file, as { name, ring: [[lat, lon], …] }.
 function readPolygons(txt) {
@@ -668,7 +683,7 @@ async function analyze() {
       if (s < soilIdx.length - 1) await sleep(1200);
     }
 
-    S.result = computePlacement({ G, elev, soilSamples, ndvi: S.ndvi, irrigation, request: $("nSensors").value, blocks: S.blocks, fieldFromBlocks: S.fieldFromBlocks, buffer: Math.max(0, +$("buffer").value || 0) });
+    S.result = computePlacement({ G, elev, soilSamples, ndvi: S.ndvi, irrigation, request: $("nSensors").value, blocks: drawnBlocks(), fieldFromBlocks: S.fieldFromBlocks, buffer: Math.max(0, +$("buffer").value || 0) });
     renderResult();
     setStatus("");
   } catch (err) {
@@ -770,9 +785,9 @@ function readRoi() {
 }
 function roiDefaults() {
   const setAuto = (id, val) => { const el = $(id); if (el.dataset.typed) return; el.value = val == null ? "" : val; };
-  const area = S.blocks.length ? S.blocks.reduce((a, b) => a + fieldAreaHa(b.ring), 0) : S.field && !S.isExample ? fieldAreaHa(S.field) : null;
+  const d = drawnBlocks(), area = d.length ? d.reduce((a, b) => a + fieldAreaHa(b.ring), 0) : S.field && !S.isExample ? fieldAreaHa(S.field) : null;
   setAuto("roiArea", area == null ? null : +area.toFixed(1));
-  setAuto("roiProbes", S.result ? S.result.sensors.length : S.blocks.length || askedBlocks());
+  setAuto("roiProbes", S.result ? S.result.sensors.length : askedBlocks() || drawnBlocks().length || null);
   renderRoi();
 }
 function renderRoi() {
@@ -795,15 +810,27 @@ document.getElementById("roiStep").addEventListener("input", (e) => {
   if (e.target.value === "" && (e.target.id === "roiArea" || e.target.id === "roiProbes")) roiDefaults(); else renderRoi();
 });
 
+// ---------- tabs ----------
+// Probe placement and the return on investment are two tabs of the panel, so each stays short.
+function showTab(t) {
+  $("panel").dataset.tab = t;
+  document.querySelectorAll(".tabs [data-tab]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === t)));
+  store.set("hs.tab", t);
+}
+document.querySelector(".tabs").addEventListener("click", (e) => { const t = e.target.dataset.tab; if (t) { showTab(t); $("panel").scrollTop = 0; } });
+$("toRoi").addEventListener("click", () => { showTab("roi"); $("panel").scrollTop = 0; $("roiStep").scrollIntoView({ behavior: "smooth" }); });
+
 // ---------- exports ----------
 const exportCtx = () => ({ field: S.field, fieldName: $("fieldName").value.trim(), askedBlocks: askedBlocks(), roi: computeRoi(readRoi()) });
 $("dlReport").onclick = () => S.result && openReport(S.result, exportCtx());
+$("dlReportRoi").onclick = () => { if (S.result) openReport(S.result, exportCtx()); else { showTab("place"); setStatus("Find the sensor spots first (step 6), then open the report."); } };
 $("dlGpx").onclick = () => S.result && exportGpx(S.result, exportCtx());
 $("dlCsv").onclick = () => S.result && exportCsv(S.result, exportCtx());
 $("dlGeo").onclick = () => S.result && exportGeoJson(S.result, exportCtx());
 
 // ---------- start ----------
 (function start() {
+  showTab(store.get("hs.tab") === "roi" ? "roi" : "place");
   const roi = store.get("hs.roi");
   if (roi) {
     $("roiEnergy").value = roi.energy || "electric";
@@ -824,7 +851,9 @@ $("dlGeo").onclick = () => S.result && exportGeoJson(S.result, exportCtx());
   updateIrrigation();
   const nb = store.get("hs.nBlocks"); if (nb >= 1) $("nBlocks").value = nb;
   const sb = store.get("hs.blocks");
-  if (Array.isArray(sb)) S.blocks = sb.filter((b) => b && typeof b.name === "string" && Array.isArray(b.ring) && b.ring.length >= 3);
+  if (Array.isArray(sb)) S.blocks = sb.filter((b) => b && typeof b.name === "string").map((b) => ({ name: b.name, ring: Array.isArray(b.ring) && b.ring.length >= 3 ? b.ring : null }));
+  if (S.blocks.length && !askedBlocks()) $("nBlocks").value = S.blocks.length;
+  syncBlockRows();
   renderBlocks();
   if (!$("devSerial").value) $("devSerial").value = store.get("hs.devSerial") || "";
   readDeviceHash();
