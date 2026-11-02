@@ -205,7 +205,7 @@ function computePlacement(inp) {
     return { main, other, text: `about ${fmt((other.length / idx.length) * 100, 0)}% of the block differs from the rest${parts.length ? `: ${parts.join(", ")}` : ""}` };
   }
 
-  const R = { G, pts, lab, T, soil, ndvi, ndviInfo: ndvi ? inp.ndvi : null, piv, irrigation: inp.irrigation, sensors, ha, notes, buffer, k, blocks, edgeAt };
+  const R = { G, pts, lab, T, soil, ndvi, ndviInfo: ndvi ? inp.ndvi : null, piv, irrigation: inp.irrigation, sensors, ha, notes, buffer, k, blocks, edgeAt, X, featDims };
   describe(R);
   return R;
 }
@@ -311,4 +311,89 @@ function resetSensor(s) {
   if (!s.orig) return;
   Object.assign(s, s.orig, { moved: false });
   delete s.orig; delete s.x; delete s.y;
+}
+
+// ---------- check of probes already installed ----------
+// Each installed probe is compared with the recommendation for its block (or zone): is it inside a block, far enough
+// from the block border, at a point typical of the part it should represent, and clear of the pivot's bad spots?
+// sev: 0 good, 1 worth a look, 2 should move. The suggested move is the recommended spot of the part it represents.
+const CHECK_VERDICT = ["Good spot", "Worth a look", "Should move"];
+const COMPASS = ["east", "north-east", "north", "north-west", "west", "south-west", "south", "south-east"];
+const compass = (dx, dy) => COMPASS[(Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) + 8) % 8];
+function assessProbes(R, probes) {
+  const P = R.G.P, X = R.X, dims = R.featDims;
+  const dist = (i, c) => Math.sqrt(dims.reduce((s, d, k) => s + (X[i][d] - c[k]) ** 2, 0));
+  // Typical conditions of the part each recommended spot represents, and how far its points are from them.
+  const ref = R.sensors.map((s) => { const c = dims.map((d) => mean(s.idx.map((i) => X[i][d]))); return { s, c, ds: s.idx.map((i) => dist(i, c)).sort((a, b) => a - b) }; });
+  const rankIn = (r, j) => { const d = dist(j, r.c); let n = 0; for (const v of r.ds) if (v < d - 1e-9) n++; return n / r.ds.length; };
+  const aim = (a) => { if (!a.ref) return; const [tx, ty] = P.fwd(a.ref.s.lat, a.ref.s.lon); a.move = Math.hypot(tx - a.x, ty - a.y); a.dir = compass(tx - a.x, ty - a.y); };
+  const where = (zone) => (R.blocks ? `block ${R.blocks[zone].name}` : `zone ${zone + 1}`);
+  const out = probes.map((p) => {
+    const [x, y] = P.fwd(p.lat, p.lon), lines = [];
+    const zone = R.blocks ? R.blocks.findIndex((b) => inPoly(x, y, b.xy)) : inPoly(x, y, R.G.poly) ? null : -1;
+    const near = (idx) => idx.reduce((b, k) => (Math.hypot(R.pts[k].x - x, R.pts[k].y - y) < Math.hypot(R.pts[b].x - x, R.pts[b].y - y) ? k : b), idx[0]);
+    const all = R.pts.map((_, i) => i);
+    let j = near(all), z = zone === null ? R.lab[j] : zone;
+    const a = { ...p, x, y, zone: z, inside: z >= 0, lines, sev: 0 };
+    const recOf = (rs) => rs.reduce((b, r) => (Math.hypot(r.s.lat - p.lat, r.s.lon - p.lon) < Math.hypot(b.s.lat - p.lat, b.s.lon - p.lon) ? r : b), rs[0]);
+    if (z < 0) {
+      a.sev = 2; a.ref = null;
+      lines.push(R.blocks ? "Outside every irrigation block drawn: it does not show how any block is watered." : "Outside the field.");
+    } else {
+      const zi = all.filter((i) => R.lab[i] === z); if (zi.length) j = near(zi);
+      const rs = ref.filter((r) => r.s.zone === z);
+      if (!rs.length) { a.ref = null; lines.push(`No recommended spot could be found for ${where(z)}.`); }
+      else {
+        // The part of the block it stands for: the one whose typical conditions it matches best.
+        const best = rs.map((r) => ({ r, rank: rankIn(r, j) })).sort((u, v) => u.rank - v.rank)[0];
+        a.ref = best.r; a.rank = best.rank;
+        const part = best.r.s.optional ? `the differing part of ${where(z)}` : where(z);
+        if (best.rank <= 0.5) lines.push(`Typical of ${part}: ${["terrain", R.soil && "soil", R.ndvi && "crop vigour"].filter(Boolean).join(", ").replace(/, ([^,]*)$/, " and $1")} here match most of it.`);
+        else if (best.rank <= 0.75) lines.push(`Fairly typical of ${part}.`);
+        else { a.sev = Math.max(a.sev, best.rank > 0.9 ? 2 : 1); lines.push(`Not typical of ${part}: ${fmt(best.rank * 100, 0)}% of it is closer to its usual conditions than this point${diffText(R, j, best.r.s.idx)}.`); }
+      }
+      const ring = R.blocks ? R.blocks[z].xy : R.G.poly, edge = edgeDist(x, y, ring);
+      a.edge = edge;
+      if (edge < R.buffer) { a.sev = 2; lines.push(`Only ${fmt(edge, 0)} m from the ${R.blocks ? `border of block ${R.blocks[z].name}` : "field edge"} (at least ${R.buffer} m recommended). Probes are never installed close to a block border: the edge is watered and drained differently.`); }
+      const q = R.piv ? pivotAt(R.G, R.irrigation)(x, y) : null;
+      if (q && q.avoid) { a.sev = Math.max(a.sev, 1); lines.push(`${AVOID_TEXT[q.avoid][0].toUpperCase()}${AVOID_TEXT[q.avoid].slice(1)} (${fmt(q.d, 0)} m from the centre): readings or the cable may suffer here.`); }
+    }
+    a.j = j; a.recOf = recOf; aim(a);
+    return a;
+  });
+  // One probe per part: when two probes stand for the same part, the more typical one keeps it.
+  const byRef = new Map();
+  for (const a of out) if (a.ref && a.inside) { const k = byRef.get(a.ref) || []; k.push(a); byRef.set(a.ref, k); }
+  for (const [r, list] of byRef) {
+    list.sort((u, v) => u.sev - v.sev || u.rank - v.rank);
+    list.slice(1).forEach((a) => { a.sev = Math.max(a.sev, 1); a.extra = true; a.lines.push(`${list[0].name} already stands for ${r.s.optional ? "this part of " : ""}${where(r.s.zone)}${R.blocks && !R.sensors.some((s) => s.zone === r.s.zone && s.optional) ? ", which is even enough for one probe" : ""}. This one adds little.`); });
+  }
+  const used = new Set(out.filter((a) => a.inside && a.ref).map((a) => a.ref.s));
+  const missing = R.sensors.filter((s) => !s.optional && !used.has(s)), optional = R.sensors.filter((s) => s.optional && !used.has(s));
+  // A probe outside the blocks, or a second one in a part already covered, is best moved to a part with no probe.
+  const pool = ref.filter((r) => missing.includes(r.s));
+  for (const a of out) {
+    if ((!a.inside || a.extra) && pool.length) { a.ref = a.recOf(pool); a.fills = true; pool.splice(pool.indexOf(a.ref), 1); aim(a); }
+    delete a.recOf;
+  }
+  for (const a of out) {
+    a.verdict = CHECK_VERDICT[a.sev];
+    if (!a.inside && !a.ref) { a.suggest = `Every ${R.blocks ? "block" : "zone"} already has a probe: move this one inside ${R.blocks ? "a block" : "the field"} only if you want a second reading there.`; continue; }
+    if (!a.ref) continue;
+    if (a.fills) { a.suggest = `Move it ${fmt(a.move, 0)} m ${a.dir}, to ${a.ref.s.name}, the recommended spot of ${where(a.ref.s.zone)}, which has no probe.`; continue; }
+    const ok = a.move < Math.max(10, R.G.spacing);
+    if (a.sev === 0) a.suggest = ok ? "It is at the recommended spot." : `The recommended spot (${a.ref.s.name}) is ${fmt(a.move, 0)} m ${a.dir}; this one works as well.`;
+    else if (a.extra) { a.suggest = "Keep it only if you want a second reading there."; a.move = 0; a.dir = null; }
+    else a.suggest = ok ? "The recommended spot is right here: check the problem on the ground." : `Move it ${fmt(a.move, 0)} m ${a.dir}, to the recommended spot ${a.ref.s.name}.`;
+  }
+  return { probes: out, missing, optional, counts: [0, 1, 2].map((v) => out.filter((a) => a.sev === v).length) };
+}
+// How a point differs from the typical conditions of a set of grid points.
+function diffText(R, j, idx) {
+  const parts = [], d = (arr) => arr[j] - mean(idx.map((i) => arr[i]));
+  const dE = d(R.T.elev); if (Math.abs(dE) >= 1) parts.push(`${fmt(Math.abs(dE), 1)} m ${dE < 0 ? "lower" : "higher"}`);
+  const dT = d(R.T.tpi); if (Math.abs(dT) >= 0.2) parts.push(dT < 0 ? "in a slight hollow" : "on a slight rise");
+  if (R.soil) { const dC = d(R.soil.clay); if (Math.abs(dC) >= 2) parts.push(`${dC > 0 ? "heavier" : "lighter"} soil (${dC > 0 ? "+" : ""}${fmt(dC, 0)}% clay)`); }
+  if (R.ndvi) { const dN = d(R.ndvi); if (Math.abs(dN) >= 0.05) parts.push(`${dN > 0 ? "stronger" : "weaker"} crop (NDVI ${dN > 0 ? "+" : ""}${fmt(dN, 2)})`); }
+  return parts.length ? `: ${parts.join(", ")}` : "";
 }
