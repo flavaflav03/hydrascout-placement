@@ -290,7 +290,7 @@ $("searchForm").addEventListener("submit", async (e) => {
 // locate.html in a small window; that page looks the device up and posts the last GPS fix back to this page
 // (only this origin can receive it). If pop-ups are blocked, it opens in this tab and comes back with the
 // position in the URL hash: #device=<serial>&lat=…&lng=…&seen=…&product=… (or &error=notfound|nogps).
-const LOGGER_URL = ""; // e.g. "https://devices.hsti.fr"; when empty, the address is asked once and remembered
+const LOGGER_URL = "https://srv2118288.hstgr.cloud"; // HSTI Logger Overview (same VPS as the hosted app)
 const loggerUrl = () => (LOGGER_URL || store.get("hs.loggerUrl") || "").replace(/\/+$/, "");
 $("loggerCfg").hidden = !!loggerUrl();
 $("deviceForm").addEventListener("submit", (e) => {
@@ -303,11 +303,40 @@ $("deviceForm").addEventListener("submit", (e) => {
     store.set("hs.loggerUrl", u.replace(/\/+$/, ""));
   }
   store.set("hs.devSerial", serial);
+  // Hosted on the same server as Logger Overview: read its device list directly with the logger's login cookie.
+  if (sameOriginLogger()) { lookupDeviceDirect(serial); return; }
   const url = `${loggerUrl()}/locate.html?serial=${serial}`;
   const w = window.open(url, "hs-locate", "popup,width=480,height=640");
   if (!w) { location.href = url; return; }
   setSearchStatus(`Looking up device ${serial} in HSTI Logger Overview… If it asks you to log in, log in there, then press Use its GPS again.`);
 });
+function sameOriginLogger() {
+  try { return new URL(loggerUrl()).origin === location.origin; } catch (err) { return false; }
+}
+async function lookupDeviceDirect(serial) {
+  setSearchStatus(`Looking up device ${serial} in HSTI Logger Overview…`);
+  const find = async (refresh) => {
+    const r = await fetch(`${loggerUrl()}/api/devices${refresh ? "?refresh=1" : ""}`, { credentials: "same-origin", headers: { Accept: "application/json" } });
+    const type = r.headers.get("content-type") || "";
+    if (r.status === 401 || r.status === 403 || r.redirected || !type.includes("json")) throw new Error("login");
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const rows = Array.isArray(data) ? data : (data.devices || data.rows || []);
+    return rows.find((row) => row && row.dm && String(row.serial) === serial);
+  };
+  try {
+    const row = (await find(false)) || (await find(true));
+    if (!row) { showDevice({ device: serial, error: "notfound" }); return; }
+    const { lat, lng, lastConnected, product } = row.dm;
+    if (typeof lat !== "number" || typeof lng !== "number" || (lat === 0 && lng === 0)) { showDevice({ device: serial, error: "nogps" }); return; }
+    showDevice({ device: serial, lat, lng, seen: lastConnected || "", product: product || "" });
+  } catch (err) {
+    if (err.message === "login") {
+      window.open(`${loggerUrl()}/login`, "_blank");
+      setSearchStatus("Log in to HSTI Logger Overview in the tab that just opened, then come back and press Use its GPS again.", true);
+    } else setSearchStatus(`Could not look up device ${serial}: ${err.message}`, true);
+  }
+}
 window.addEventListener("message", (e) => {
   let origin = null; try { origin = new URL(loggerUrl()).origin; } catch (err) { return; }
   if (e.origin !== origin || !e.data || e.data.type !== "hydrascout-device") return;
