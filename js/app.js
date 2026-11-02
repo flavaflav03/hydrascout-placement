@@ -1,6 +1,8 @@
 "use strict";
 // UI wiring: map, field drawing/import, NDVI, irrigation inputs, analysis run and results.
 
+decorateIcons();
+
 function setStatus(msg, err = false, id = "status") { const s = $(id); s.hidden = !msg; s.textContent = msg || ""; s.classList.toggle("err", err); }
 const setNdviStatus = (msg, err) => setStatus(msg, err, "ndviStatus");
 
@@ -112,7 +114,7 @@ async function loadSoilHere() {
 function renderKey() {
   const body = soilKey() + ndviKey();
   keyBox.hidden = !body;
-  if (body) keyBox.innerHTML = `<button type="button" class="fold" data-act="fold" aria-expanded="${KEY.open}">Map key <span aria-hidden="true">${KEY.open ? "▾" : "▸"}</span></button>${KEY.open ? `<div class="key-body">${body}</div>` : ""}`;
+  if (body) keyBox.innerHTML = `<button type="button" class="fold" data-act="fold" aria-expanded="${KEY.open}">Map key${icon(KEY.open ? "chevronDown" : "chevronRight")}</button>${KEY.open ? `<div class="key-body">${body}</div>` : ""}`;
   liftKey();
 }
 // On a narrow map the attribution wraps across the full width: lift the bottom-left controls above it.
@@ -335,13 +337,14 @@ function readDeviceHash() {
 
 // ---------- drawing ----------
 // Instructions on the map while drawing, with the drawing buttons next to them (the panel can be out of view on a phone).
+const DRAW_ICONS = { Undo: "arrowLeft", Finish: "check", Cancel: "cross" };
 function drawbar(msg, acts = []) {
   const d = $("drawbar"); d.hidden = !msg; d.innerHTML = "";
   if (!msg) return;
   const t = document.createElement("span"); t.textContent = msg; d.appendChild(t);
   if (!acts.length) return;
   const row = document.createElement("span"); row.className = "drawbar-acts";
-  for (const [label, fn, disabled] of acts) { const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.disabled = !!disabled; b.onclick = fn; row.appendChild(b); }
+  for (const [label, fn, disabled] of acts) { const b = document.createElement("button"); b.type = "button"; setLabel(b, label, DRAW_ICONS[label]); b.disabled = !!disabled; b.onclick = fn; row.appendChild(b); }
   d.appendChild(row);
 }
 const undoPoint = () => { S.draft.pop(); renderDraft(); };
@@ -366,7 +369,7 @@ function setMode(mode, block = null) {
   S.mode = mode; S.draft = []; S.redraw = mode === "block" ? block : null;
   if (mode) map.doubleClickZoom.disable(); else map.doubleClickZoom.enable();
   map.getContainer().style.cursor = mode ? "crosshair" : "";
-  $("pivCentreBtn").classList.toggle("active", mode === "pivot"); $("pivCentreBtn").textContent = mode === "pivot" ? "Cancel" : "Place pivot centre on map";
+  $("pivCentreBtn").classList.toggle("active", mode === "pivot"); setLabel($("pivCentreBtn"), mode === "pivot" ? "Cancel" : "Place pivot centre on map", mode === "pivot" ? "cross" : "mapPin");
   renderDraft(); if (S.blocks) renderBlockRows();
   if (mode === "pivot") drawbar("Tap the pivot centre on the map");
 }
@@ -401,7 +404,7 @@ function clearNdvi(msg) {
   S.ndvi = null; ndviLayer.clearLayers(); $("ndviClear").hidden = true; $("ndviMeta").hidden = true; renderKey();
   if (msg) setNdviStatus(msg);
 }
-function hideTimeline() { TL.playing = false; TL.token++; $("tPlay").textContent = "Play"; $("sceneRow").hidden = true; }
+function hideTimeline() { TL.playing = false; TL.token++; setLabel($("tPlay"), "Play", "play"); $("sceneRow").hidden = true; }
 $("ndviClear").addEventListener("click", () => { hideTimeline(); clearNdvi("NDVI removed. The analysis will use terrain and soil only."); });
 
 $("ndviFile").addEventListener("change", async (e) => {
@@ -458,10 +461,10 @@ $("tRange").addEventListener("input", (e) => {
 });
 $("tPrev").addEventListener("click", () => { stopPlay(); if (TL.idx > 0) showScene(TL.idx - 1); });
 $("tNext").addEventListener("click", () => { stopPlay(); if (TL.idx < S.scenes.length - 1) showScene(TL.idx + 1); });
-function stopPlay() { TL.playing = false; $("tPlay").textContent = "Play"; }
+function stopPlay() { TL.playing = false; setLabel($("tPlay"), "Play", "play"); }
 $("tPlay").addEventListener("click", async () => {
   if (TL.playing) return stopPlay();
-  TL.playing = true; $("tPlay").textContent = "Pause";
+  TL.playing = true; setLabel($("tPlay"), "Pause", "pause");
   if (TL.idx >= S.scenes.length - 1) await showScene(0);
   while (TL.playing && TL.idx < S.scenes.length - 1) { await sleep(1100); if (!TL.playing) break; await showScene(TL.idx + 1); }
   stopPlay();
@@ -585,17 +588,17 @@ function renderBlockRows() {
     $("blocksSummary").textContent = "No block count given: draw the whole field.";
     $("blockList").innerHTML = `<li class="${own ? "drawn" : ""}"><i class="sw" style="background:#fff;border:1px solid var(--line)"></i><span class="row-name">Whole field</span>
       <span class="ha">${own ? `${fmt(fieldAreaHa(S.field), 2)} ha` : "not drawn"}</span>
-      <button type="button" data-field="1" class="${drawing ? "active" : own || S.mode ? "" : "primary-lite"}">${label}</button></li>`;
-    $("blockFileBtn").firstChild.textContent = "Import field or blocks";
+      <button type="button" data-field="1" class="${drawing ? "active" : own || S.mode ? "" : "primary-lite"}">${icon(drawing ? "cross" : "pen")}${label}</button></li>`;
+    $("blockFileBtn").querySelector(".lbl").textContent = "Import field or blocks";
     return;
   }
-  $("blockFileBtn").firstChild.textContent = "Import blocks";
+  $("blockFileBtn").querySelector(".lbl").textContent = "Import blocks";
   $("blocksSummary").textContent = `Your ${total} block${total === 1 ? "" : "s"} · ${n === total ? (total > 1 ? "all drawn" : "drawn") : `${n} of ${total} drawn`}`;
   $("blockList").innerHTML = S.blocks.map((b, bi) => {
     const drawing = S.mode === "block" && S.redraw === bi, label = drawing ? "Cancel" : b.ring ? "Redraw" : "Draw borders";
     return `<li class="${b.ring ? "drawn" : ""}"><i class="sw" style="background:${blockColor(b)}"></i><input type="text" value="${escapeHtml(b.name)}" data-i="${bi}" aria-label="Name of block ${bi + 1}" maxlength="30">
       <span class="ha">${b.ring ? `${fmt(fieldAreaHa(b.ring), 2)} ha` : "not drawn"}</span>
-      <button type="button" data-draw="${bi}" class="${drawing ? "active" : bi === next && S.mode !== "block" ? "primary-lite" : ""}" aria-label="${label}: block ${escapeHtml(b.name)}">${label}</button></li>`;
+      <button type="button" data-draw="${bi}" class="${drawing ? "active" : bi === next && S.mode !== "block" ? "primary-lite" : ""}" aria-label="${label}: block ${escapeHtml(b.name)}">${icon(drawing ? "cross" : "pen")}${label}</button></li>`;
   }).join("");
 }
 // The grower's own block count (step 2) frames the need: one probe per block. It sets the probe count when no
@@ -755,11 +758,11 @@ function renderResult() {
       <div class="coords">${coords}</div>
       <ul>${s.why.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>
       ${s.tip ? `<p class="hint">Installation: ${escapeHtml(s.tip)}</p>` : ""}
-      <div class="row"><button type="button" data-act="zoom">Show</button><button type="button" data-act="copy">Copy coordinates</button>
-      <a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${s.lat.toFixed(6)},${s.lon.toFixed(6)}">Navigate</a>
-      ${s.moved ? '<button type="button" data-act="reset">Back to recommended spot</button>' : ""}${s.optional ? '<button type="button" data-act="drop">Drop this optional probe</button>' : ""}</div>`;
+      <div class="row"><button type="button" data-act="zoom">${icon("search")}Show</button><button type="button" data-act="copy">${icon("link")}Copy coordinates</button>
+      <a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${s.lat.toFixed(6)},${s.lon.toFixed(6)}">${icon("externalLink")}Navigate</a>
+      ${s.moved ? `<button type="button" data-act="reset">${icon("arrowLeft")}Back to recommended spot</button>` : ""}${s.optional ? `<button type="button" data-act="drop">${icon("trash")}Drop this optional probe</button>` : ""}</div>`;
     card.querySelector('[data-act="zoom"]').onclick = () => { map.setView([s.lat, s.lon], Math.max(map.getZoom(), 17)); if (window.innerWidth <= 760) $("mapwrap").scrollIntoView({ behavior: "smooth" }); };
-    card.querySelector('[data-act="copy"]').onclick = async (ev) => { try { await navigator.clipboard.writeText(coords); ev.target.textContent = "Copied"; } catch (e) { ev.target.textContent = coords; } };
+    card.querySelector('[data-act="copy"]').onclick = async (ev) => { try { await navigator.clipboard.writeText(coords); setLabel(ev.currentTarget, "Copied", "check"); } catch (e) { setLabel(ev.currentTarget, coords); } };
     if (s.optional) card.querySelector('[data-act="drop"]').onclick = () => {
       R.sensors.splice(R.sensors.indexOf(s), 1); R.sensors.forEach((t, k) => { t.name = `HS-${k + 1}`; });
       setStatus(`Optional probe removed: block ${s.block} keeps one probe.`); renderResult();

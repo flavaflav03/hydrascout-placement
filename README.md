@@ -32,6 +32,7 @@ It runs entirely in the browser: no server, no account, no API keys. Open `index
 - `index.html`: page structure
 - `css/app.css`: styles (light and dark)
 - `js/util.js`: helpers, geometry, projections, colour ramps
+- `js/icons.js`: the [Papicons](https://github.com/PapillonApp/papicons) icons the app uses (MIT, copied in so there is no build step)
 - `js/sources.js`: elevation, soil, NDVI file and Sentinel-2 loading
 - `js/analysis.js`: grid, terrain, zoning, spot selection and explanations
 - `js/roi.js`: return on investment (water and pumping savings, payback)
