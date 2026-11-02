@@ -4,6 +4,8 @@ A lightweight web app that suggests where to install Hydrascout soil & temperatu
 
 It runs entirely in the browser: no server, no account, no API keys. Open `index.html` locally, or host the folder on GitHub Pages (Settings → Pages → Deploy from branch `main`, folder `/`).
 
+To serve it from your own VPS (Debian/Ubuntu) with nginx, HTTPS and automatic updates from `main`, point a domain at the VPS and run [`deploy/setup-vps.sh`](deploy/setup-vps.sh) as root: `bash setup-vps.sh placement.example.com you@example.com`.
+
 ## How it works
 
 1. **Find the field**: search an address or place, coordinates, or a Digital Matter device's last GPS position.
