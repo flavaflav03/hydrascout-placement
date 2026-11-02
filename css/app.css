@@ -221,3 +221,47 @@ footer { font-size: 12px; color: var(--muted); margin-top: auto; }
 button *, .btn > svg, .btn > span { pointer-events: none; } /* clicks land on the button itself, which the click handlers read */
 .tl-controls button[data-icon="chevronLeft"], .tl-controls button[data-icon="chevronRight"] { padding: 7px 8px; }
 .tabs button { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Start choice: install new probes / check installed probes */
+#panel { counter-reset: step; }
+.step h2 b::before { counter-increment: step; content: counter(step); }
+#panel[data-mode=""] > :is(.tabs, section.step, #modeBar) { display: none; }
+#panel:not([data-mode=""]) > #modePick { display: none; }
+#panel[data-mode="new"] [data-only="check"], #panel[data-mode="check"] [data-only="new"] { display: none !important; }
+.mode-pick { display: flex; flex-direction: column; gap: 10px; }
+.mode-pick h2 { font: 700 20px/1.2 var(--font-head); margin: 4px 0 2px; }
+.mode-opt { display: flex; align-items: flex-start; gap: 12px; text-align: left; padding: 14px; line-height: 1.35; background: var(--panel); border: 1.5px solid var(--line); border-radius: 10px; }
+.mode-opt:hover { border-color: var(--accent); background: var(--chip); }
+.mode-opt b { display: block; font: 700 17px/1.2 var(--font-head); margin-bottom: 3px; }
+.mode-opt span span { color: var(--muted); font-size: 14px; font-weight: 400; }
+.mode-ico { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); }
+.mode-ico .ico { width: 20px; height: 20px; }
+.mode-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-radius: 8px; background: var(--chip); font-weight: 600; font-size: 14px; }
+.mode-bar #modeName { display: inline-flex; align-items: center; gap: 6px; }
+.link { border: 0; background: none; padding: 4px 0; color: var(--accent); font: 500 14px var(--font-ui); cursor: pointer; text-decoration: underline; }
+.missing .link { font-size: 13px; padding: 0; }
+
+/* Installed probes and their check */
+.pk { flex: none; display: inline-block; width: 14px; height: 14px; transform: rotate(45deg); border-radius: 2px; background: #6b7a70; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+.pk.sev0 { background: #3f9a52; } .pk.sev1 { background: #e0a02a; } .pk.sev2 { background: #d0453a; }
+.probe-pin { background: none; border: 0; cursor: grab; display: grid; place-items: center; }
+.probe-pin .pk { width: 18px; height: 18px; border-width: 3px; box-shadow: 0 1px 4px rgba(0,0,0,.55); }
+.probe-label { font: 600 12px/1.1 var(--font-ui); padding: 2px 5px; }
+.rec-pin { background: none; border: 0; }
+.rec-pin span { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,.85); border: 3px solid var(--accent); color: #1d2a22; font: 700 12px/1 var(--font-ui); box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.rec-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 2.5px solid var(--accent); background: #fff; }
+.probe-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.probe-list li { display: flex; align-items: center; gap: 8px; }
+.probe-list li input { width: 0; flex: 1 1 90px; }
+.probe-list .ha { font: 12px var(--font-data); color: var(--muted); white-space: nowrap; }
+.probe-list button { padding: 6px 7px; flex: none; }
+.check-headline { margin: 0; padding: 10px 12px; border-radius: 6px; background: var(--chip); border-left: 3px solid var(--accent); font-size: 14px; }
+.check-key { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); }
+.check-key span { display: inline-flex; align-items: center; gap: 6px; }
+.check-key .pk { width: 10px; height: 10px; border-width: 1.5px; }
+.sensor.check.sev1 { border-left: 4px solid #e0a02a; } .sensor.check.sev2 { border-left: 4px solid #d0453a; } .sensor.check.sev0 { border-left: 4px solid #3f9a52; }
+.sensor.check h3 .pk { margin: 0 4px 0 2px; }
+.tag.v-good { background: #3f9a52; color: #fff; } .tag.v-look { background: #e0a02a; color: #1d2a22; } .tag.v-move { background: #d0453a; color: #fff; }
+.suggest { margin: 0; font-weight: 600; font-size: 14px; }
+.missing { margin: 0; padding-left: 18px; font-size: 14px; display: flex; flex-direction: column; gap: 6px; }
+.sensor .reason { width: 100%; font-size: 14px; }

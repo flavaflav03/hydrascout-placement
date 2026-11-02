@@ -8,22 +8,44 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
-<link rel="stylesheet" href="css/app.css?v=16">
+<link rel="stylesheet" href="css/app.css?v=17">
 </head>
 <body>
 <div id="app">
-  <aside id="panel">
+  <aside id="panel" data-mode="">
     <header>
       <h1>Hydrascout Placement</h1>
       <p>Find the most representative spots in a field to install Hydrascout soil &amp; temperature sensors.</p>
     </header>
+    <section class="mode-pick" id="modePick" aria-labelledby="modeQ">
+      <h2 id="modeQ">What do you want to do?</h2>
+      <button type="button" class="mode-opt" data-mode="new"><span class="mode-ico" data-icon="add"></span><span><b>Install new probes</b><span>Find how many probes the farm needs and the best spot for each one.</span></span></button>
+      <button type="button" class="mode-opt" data-mode="check"><span class="mode-ico" data-icon="check"></span><span><b>Check probes already installed</b><span>Type the device IDs: the app finds the probes on the map, says if each one is well placed and suggests where to move it.</span></span></button>
+    </section>
+    <div class="mode-bar" id="modeBar"><span id="modeName"></span><button type="button" class="link" id="modeChange">Change</button></div>
     <nav class="tabs" role="tablist" aria-label="Sections">
       <button type="button" role="tab" id="tabPlace" data-tab="place" aria-selected="true" data-icon="mapPin">Probe placement</button>
       <button type="button" role="tab" id="tabRoi" data-tab="roi" aria-selected="false" data-icon="piggyBank">Return on investment</button>
     </nav>
 
+    <section class="step" data-only="check" id="probeStep">
+      <h2><b></b> Your installed probes</h2>
+      <form class="row search" id="probeForm">
+        <div class="search-box"><input type="text" id="probeIds" inputmode="numeric" placeholder="Device IDs, e.g. 1234567, 1234568" autocomplete="off" aria-label="Device IDs of the installed probes"></div>
+        <button type="submit" data-icon="mapPin">Find</button>
+      </form>
+      <p class="hint">Type the Digital Matter serial of each probe (several at once, separated by commas or spaces). The app reads each device's last GPS position from HSTI Logger Overview (log in there if asked) and puts it on the map.</p>
+      <div class="status" id="probeStatus" hidden></div>
+      <ul class="probe-list" id="probeList"></ul>
+      <div class="row">
+        <button type="button" id="probeAddBtn" data-icon="add">Place one by hand</button>
+        <label class="btn file" data-icon="folder">Import positions<input type="file" id="probeFile" accept=".csv,.txt,.gpx,.geojson,.json,.kml"></label>
+      </div>
+      <p class="hint">No GPS on a device? Place it by hand, or import a CSV (lat, lon columns), GPX, KML or GeoJSON file. Drag a probe on the map to correct its position.</p>
+    </section>
+
     <section class="step">
-      <h2><b>1</b> Find the field</h2>
+      <h2><b></b> Find the field</h2>
       <form class="row search" id="searchForm" role="search">
         <div class="search-box">
           <input type="text" id="q" placeholder="Address, town, place or 48.28, 1.61" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="suggest">
@@ -32,28 +54,28 @@
         <button type="submit" data-icon="search">Search</button>
       </form>
       <div class="status" id="searchStatus" hidden></div>
-      <form class="row search" id="deviceForm">
+      <form class="row search" id="deviceForm" data-only="new">
         <div class="search-box"><input type="text" id="devSerial" inputmode="numeric" placeholder="Or a Digital Matter device serial" autocomplete="off" aria-label="Digital Matter device serial"></div>
         <button type="submit" data-icon="mapPin">Use its GPS</button>
       </form>
       <div class="row search" id="loggerCfg" hidden>
         <div class="search-box"><input type="url" id="loggerUrl" placeholder="HSTI Logger Overview address, https://…" aria-label="HSTI Logger Overview address"></div>
       </div>
-      <p class="hint">Puts the pin on the device's last GPS position, read through HSTI Logger Overview (log in there if asked).</p>
+      <p class="hint" data-only="new">Puts the pin on the device's last GPS position, read through HSTI Logger Overview (log in there if asked).</p>
     </section>
 
     <section class="step">
-      <h2><b>2</b> Your irrigation blocks</h2>
+      <h2><b></b> Your irrigation blocks</h2>
       <div class="opt">
         <label for="nBlocks">How many irrigation blocks do you have?</label>
         <input type="number" id="nBlocks" min="1" max="50" step="1" inputmode="numeric" placeholder="e.g. 4">
       </div>
-      <p class="hint">A block is a part of the farm watered on its own (one valve or one sector). HSTI recommends one probe per block. Not sure? Leave it empty, draw the whole field in step 3 and the app suggests a number from its size.</p>
+      <p class="hint">A block is a part of the farm watered on its own (one valve or one sector). HSTI recommends one probe per block. Not sure? Leave it empty, draw the whole field under “Draw the blocks” and the app suggests a number from its size.</p>
       <p class="need" id="needLine" hidden></p>
     </section>
 
     <section class="step">
-      <h2><b>3</b> Draw the blocks</h2>
+      <h2><b></b> Draw the blocks</h2>
       <p class="field-info" id="blocksSummary"></p>
       <ul class="block-list" id="blockList"></ul>
       <div class="row">
@@ -65,7 +87,7 @@
     </section>
 
     <section class="step">
-      <h2><b>4</b> Irrigation equipment <span class="tag">optional</span></h2>
+      <h2><b></b> Irrigation equipment <span class="tag">optional</span></h2>
       <div class="opt">
         <label for="irrType">Irrigation equipment</label>
         <select id="irrType">
@@ -95,7 +117,7 @@
     </section>
 
     <section class="step">
-      <h2><b>5</b> Crop vigour and soil</h2>
+      <h2><b></b> Crop vigour and soil</h2>
       <div class="row">
         <button id="sceneBtn" type="button" disabled data-icon="gallery">Find satellite images</button>
         <label class="btn file" data-icon="folder">Upload NDVI GeoTIFF<input type="file" id="ndviFile" accept=".tif,.tiff"></label>
@@ -130,10 +152,10 @@
     </section>
 
     <section class="step">
-      <h2><b>6</b> Sensor spots</h2>
+      <h2><b></b> <span data-only="new">Sensor spots</span><span data-only="check">Check the positions</span></h2>
       <div class="opt">
-        <label for="nSensors">Number of sensors</label>
-        <select id="nSensors">
+        <label for="nSensors" data-only="new">Number of sensors</label>
+        <select id="nSensors" data-only="new">
           <option value="auto" selected id="autoOpt">Auto (by field size)</option>
           <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
           <option>6</option><option>7</option><option>8</option><option>10</option><option>12</option>
@@ -141,13 +163,14 @@
         <label for="buffer">Keep away from field and block borders (m)</label>
         <input type="number" id="buffer" value="20" min="0" max="200" step="5">
       </div>
-      <p class="hint" id="countHint">No block map? Pick the number of irrigation blocks here: one probe per block.</p>
+      <p class="hint" id="countHint" data-only="new">No block map? Pick the number of irrigation blocks here: one probe per block.</p>
+      <p class="hint" data-only="check">The app works out where probes should go in each block, then compares each installed probe with it: inside a block, far enough from its border, and at a point typical of the block.</p>
       <button class="primary" id="analyzeBtn" type="button" disabled data-icon="sparkles">Find sensor spots</button>
       <div class="status" id="status" hidden></div>
     </section>
 
     <section class="step" id="results" hidden>
-      <h2><b>7</b> Recommended spots</h2>
+      <h2><b></b> Recommended spots</h2>
       <dl class="summary" id="summary"></dl>
       <div class="opt">
         <label for="view">Show on map</label>
@@ -166,6 +189,20 @@
       </div>
       <button type="button" id="toRoi" data-icon="piggyBank">See the return on investment</button>
       <ul class="notes" id="notes"></ul>
+    </section>
+
+    <section class="step" id="checkResults" hidden>
+      <h2><b></b> Probe check</h2>
+      <p class="check-headline" id="checkHeadline"></p>
+      <div class="check-key"><span><i class="pk sev0"></i>Good spot</span><span><i class="pk sev1"></i>Worth a look</span><span><i class="pk sev2"></i>Should move</span><span><i class="rec-dot"></i>Recommended spot</span></div>
+      <div id="checkList" class="step"></div>
+      <div id="checkMissing"></div>
+      <p class="hint">Drag a probe on the map to try another position: its check updates at once.</p>
+      <div class="row">
+        <button type="button" class="primary" id="dlCheckReport" data-icon="paper">Open check report</button>
+        <button type="button" id="dlCheckCsv" data-icon="arrowDownBox">CSV</button>
+      </div>
+      <ul class="notes" id="checkNotes"></ul>
     </section>
 
     <section class="step" id="roiStep">
@@ -215,12 +252,12 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.2/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
-<script src="js/util.js?v=16"></script>
-<script src="js/icons.js?v=16"></script>
-<script src="js/sources.js?v=16"></script>
-<script src="js/analysis.js?v=16"></script>
-<script src="js/roi.js?v=16"></script>
-<script src="js/report.js?v=16"></script>
-<script src="js/app.js?v=16"></script>
+<script src="js/util.js?v=17"></script>
+<script src="js/icons.js?v=17"></script>
+<script src="js/sources.js?v=17"></script>
+<script src="js/analysis.js?v=17"></script>
+<script src="js/roi.js?v=17"></script>
+<script src="js/report.js?v=17"></script>
+<script src="js/app.js?v=17"></script>
 </body>
 </html>

@@ -11,7 +11,7 @@ const fileBase = (ctx) => `hydrascout-${slug(ctx.fieldName) || "field"}-${stamp(
 // Zone number, or block name when the spots follow irrigation blocks; optional probes are flagged.
 const zoneOf = (s) => (s.block != null ? s.block : String(s.zone + 1));
 const optTag = (s) => (s.optional ? " (optional)" : "");
-const sensorText = (s) => s.why.concat(s.tip ? [s.tip] : []).join(" ");
+const sensorText = (s) => s.why.concat(s.reason ? [`Placed here: ${s.reason}.`] : [], s.tip ? [s.tip] : []).join(" ");
 
 function irrigationSummary(irr) {
   if (!irr || irr.type === "none") return "Not irrigated";
@@ -35,10 +35,10 @@ function exportGpx(R, ctx) {
 
 function exportCsv(R, ctx) {
   const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
-  const rows = [["name", "lat", "lon", "zone", "zone_share_pct", "elevation_m", "slope_pct", "clay_pct", "sand_pct", "ndvi", "dist_to_edge_m", "pivot_dist_m", "moved_by_hand", "optional", "why", "install_tip"]];
+  const rows = [["name", "lat", "lon", "zone", "zone_share_pct", "elevation_m", "slope_pct", "clay_pct", "sand_pct", "ndvi", "dist_to_edge_m", "pivot_dist_m", "moved_by_hand", "optional", "why", "install_tip", "placed_here_because"]];
   R.sensors.forEach((s) => rows.push([s.name, s.lat.toFixed(7), s.lon.toFixed(7), q(zoneOf(s)), fmt(s.share * 100, 0), fmt(R.T.elev[s.i], 1), fmt(R.T.slope[s.i], 2),
     R.soil ? fmt(R.soil.clay[s.i], 1) : "", R.soil ? fmt(R.soil.sand[s.i], 1) : "", R.ndvi ? fmt(R.ndvi[s.i], 3) : "", fmt(s.edge, 0),
-    R.piv ? fmt(R.piv[s.i].d, 0) : "", s.moved ? "yes" : "no", s.optional ? "yes" : "no", q(s.why.join(" ")), q(s.tip || "")]));
+    R.piv ? fmt(R.piv[s.i].d, 0) : "", s.moved ? "yes" : "no", s.optional ? "yes" : "no", q(s.why.join(" ")), q(s.tip || ""), q(s.reason || "")]));
   download(`${fileBase(ctx)}.csv`, "text/csv", "﻿" + rows.map((r) => r.join(",")).join("\n") + "\n");
 }
 
@@ -46,7 +46,7 @@ function exportGeoJson(R, ctx) {
   const ring = ctx.field.concat([ctx.field[0]]).map(([a, b]) => [b, a]);
   const fc = { type: "FeatureCollection", features: [
     { type: "Feature", properties: { kind: "field", name: ctx.fieldName || null, area_ha: +R.ha.toFixed(3), irrigation: irrigationSummary(R.irrigation), ndvi_source: R.ndviInfo ? R.ndviInfo.label : null }, geometry: { type: "Polygon", coordinates: [ring] } },
-    ...R.sensors.map((s) => ({ type: "Feature", properties: { kind: "sensor", name: s.name, moved_by_hand: !!s.moved, optional: !!s.optional, zone: zoneOf(s), zone_share: +s.share.toFixed(3), why: s.why, install_tip: s.tip }, geometry: { type: "Point", coordinates: [+s.lon.toFixed(7), +s.lat.toFixed(7)] } })),
+    ...R.sensors.map((s) => ({ type: "Feature", properties: { kind: "sensor", name: s.name, moved_by_hand: !!s.moved, placed_here_because: s.reason || null, optional: !!s.optional, zone: zoneOf(s), zone_share: +s.share.toFixed(3), why: s.why, install_tip: s.tip }, geometry: { type: "Point", coordinates: [+s.lon.toFixed(7), +s.lat.toFixed(7)] } })),
   ] };
   download(`${fileBase(ctx)}.geojson`, "application/geo+json", JSON.stringify(fc, null, 2));
 }
@@ -62,15 +62,20 @@ function fieldSvg(R, ctx) {
   let pivot = "";
   if (R.piv && R.irrigation.pivot) { const [cx, cy] = P.fwd(R.irrigation.pivot.lat, R.irrigation.pivot.lon); pivot = `<circle cx="${X(cx)}" cy="${Y(cy)}" r="${R.irrigation.pivot.radius * sc}" fill="none" stroke="#2f7fbf" stroke-width="1.5" stroke-dasharray="6 4"/>`; }
   const sens = R.sensors.map((s) => { const [px, py] = P.fwd(s.lat, s.lon); return `<g><circle cx="${X(px)}" cy="${Y(py)}" r="11" fill="${zoneColor(s.zone)}" stroke="#fff" stroke-width="2.5"/><text x="${X(px)}" y="${Y(py) + 4.5}" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">${R.sensors.indexOf(s) + 1}</text></g>`; }).join("");
+  const SEVC = ["#3f9a52", "#e0a02a", "#d0453a"];
+  const probes = ctx.check ? ctx.check.probes.map((a, n) => { const [px, py] = P.fwd(a.lat, a.lon); let line = "";
+    if (a.sev && a.ref && a.move >= 3) { const [tx, ty] = P.fwd(a.ref.s.lat, a.ref.s.lon); line = `<line x1="${X(px)}" y1="${Y(py)}" x2="${X(tx)}" y2="${Y(ty)}" stroke="${SEVC[a.sev]}" stroke-width="2" stroke-dasharray="5 4"/>`; }
+    return `${line}<g><rect x="${X(px) - 9}" y="${Y(py) - 9}" width="18" height="18" rx="3" transform="rotate(45 ${X(px)} ${Y(py)})" fill="${SEVC[a.sev]}" stroke="#fff" stroke-width="2.5"/><text x="${X(px) + 14}" y="${Y(py) + 4}" font-size="12" font-weight="700" fill="#1d2a22">${escapeHtml(a.name)}</text></g>`; }).join("") : "";
+  const sensFinal = ctx.check ? R.sensors.map((s) => { const [px, py] = P.fwd(s.lat, s.lon); return `<g><circle cx="${X(px)}" cy="${Y(py)}" r="10" fill="#fff" fill-opacity=".85" stroke="${zoneColor(s.zone)}" stroke-width="3"/><text x="${X(px)}" y="${Y(py) + 4}" text-anchor="middle" font-size="11" font-weight="700" fill="#1d2a22">${R.sensors.indexOf(s) + 1}</text></g>`; }).join("") + probes : sens;
   const nice = [10, 20, 50, 100, 200, 500, 1000].find((m) => m * sc > 60) || 1000;
   return `<svg viewBox="0 0 ${W} ${H.toFixed(0)}" width="100%" role="img" aria-label="Field plan with sensor positions" style="max-width:${W}px;background:#f3f5f1;border-radius:6px">
-    ${cells}${pivot}${(R.blocks ? R.blocks.map((b) => b.xy) : [ring]).map((r) => `<polygon points="${r.map((p) => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" ")}" fill="none" stroke="#1d2a22" stroke-width="2"/>`).join("")}${sens}
+    ${cells}${pivot}${(R.blocks ? R.blocks.map((b) => b.xy) : [ring]).map((r) => `<polygon points="${r.map((p) => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" ")}" fill="none" stroke="#1d2a22" stroke-width="2"/>`).join("")}${sensFinal}
     <g transform="translate(${W - 30},28)"><path d="M0,-16 L7,6 L0,1 L-7,6 Z" fill="#1d2a22"/><text y="20" text-anchor="middle" font-size="12" fill="#1d2a22">N</text></g>
     <g transform="translate(14,${H - 14})"><rect width="${nice * sc}" height="4" fill="#1d2a22"/><text y="-5" font-size="11" fill="#1d2a22">${nice} m</text></g></svg>`;
 }
 
 function reportHtml(R, ctx) {
-  const c = centroidLatLng(ctx.field), title = ctx.fieldName ? `Sensor placement – ${ctx.fieldName}` : "Sensor placement";
+  const C = ctx.check, c = centroidLatLng(ctx.field), kind = C ? "Probe position check" : "Sensor placement", title = ctx.fieldName ? `${kind} – ${ctx.fieldName}` : kind;
   const sm = R.summary, X = ctx.roi;
   const dataRows = [
     ["Field", `${ctx.fieldName ? escapeHtml(ctx.fieldName) + ", " : ""}${fmt(R.ha, 2)} ha, centre ${c[0].toFixed(5)}, ${c[1].toFixed(5)}`],
@@ -79,12 +84,13 @@ function reportHtml(R, ctx) {
     ["NDVI", R.ndviInfo ? `${escapeHtml(R.ndviInfo.label)}${R.ndviInfo.cloud != null ? ` (scene cloud cover ${fmt(R.ndviInfo.cloud, 0)}%)` : ""}, field average ${fmt(sm.fNdvi, 2)}` : "Not used"],
     ["Irrigation", escapeHtml(irrigationSummary(R.irrigation))],
     ...(ctx.askedBlocks ? [["Irrigation blocks", `${ctx.askedBlocks} according to the grower, so ${ctx.askedBlocks} probe${ctx.askedBlocks > 1 ? "s" : ""} (one per block)${R.blocks && R.blocks.length !== ctx.askedBlocks ? `; ${R.blocks.length} drawn on the map` : ""}`]] : []),
-    ["Sensors", `${R.sensors.length}${R.blocks ? ` for ${R.blocks.length} irrigation block${R.blocks.length > 1 ? "s" : ""} (one per block${R.sensors.some((s) => s.optional) ? ", plus optional ones for uneven blocks" : ""})` : ""}, at least ${R.buffer} m from the field edge${R.blocks ? " and the block borders" : ""} where possible`],
+    [C ? "Recommended" : "Sensors", `${R.sensors.length}${R.blocks ? ` for ${R.blocks.length} irrigation block${R.blocks.length > 1 ? "s" : ""} (one per block${R.sensors.some((s) => s.optional) ? ", plus optional ones for uneven blocks" : ""})` : ""}, at least ${R.buffer} m from the field edge${R.blocks ? " and the block borders" : ""} where possible`],
   ];
   const table = R.sensors.map((s) => `<tr><td><b style="color:${zoneColor(s.zone)}">●</b> ${s.name}${optTag(s)}${s.moved ? " (moved)" : ""}</td><td>${s.lat.toFixed(6)}</td><td>${s.lon.toFixed(6)}</td><td>${escapeHtml(zoneOf(s))} (${fmt(s.share * 100, 0)}%)</td><td>${fmt(R.T.elev[s.i], 0)} m</td><td>${R.soil ? fmt(R.soil.clay[s.i], 0) + "%" : "–"}</td><td>${R.ndvi ? fmt(R.ndvi[s.i], 2) : "–"}</td></tr>`).join("");
   const cards = R.sensors.map((s) => `<section class="s"><h3><span style="background:${zoneColor(s.zone)}">${R.sensors.indexOf(s) + 1}</span>${s.name}${optTag(s)}</h3>
     <p class="mono">${s.lat.toFixed(6)}, ${s.lon.toFixed(6)} · <a href="https://www.google.com/maps/dir/?api=1&destination=${s.lat.toFixed(6)},${s.lon.toFixed(6)}">directions</a></p>
     <p class="lbl">Why here</p><ul>${s.why.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>
+    ${s.reason ? `<p class="lbl">Placed here because</p><p>${escapeHtml(s.reason)}</p>` : ""}
     ${s.tip ? `<p class="lbl">Installation</p><p>${escapeHtml(s.tip)}</p>` : ""}
     <p class="lbl">Installed on (fill in on site)</p><p class="blank">Date: ____________ &nbsp; Depth(s): ____________ &nbsp; Serial no.: ____________</p></section>`).join("");
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -104,15 +110,20 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:left;p
 @media print{button{display:none}body{padding:0}a{color:inherit}}
 </style></head><body>
 <header><h1>${escapeHtml(title)}</h1><p class="sub">Hydrascout soil &amp; temperature sensors · HSTI France · generated ${new Date().toLocaleDateString()}</p>
-${X ? `<p class="headline">${X.probes || R.sensors.length} probe${(X.probes || R.sensors.length) > 1 ? "s" : ""} at the spots below: about <b>${eur(X.scenarios[1].saved)} saved a year</b>${X.priced ? `, paying back <b>${paybackText(X.scenarios[1].payback, true)}</b>` : ""} (expected case).</p>` : ""}
+${C ? `<p class="headline">${C.probes.length} installed probe${C.probes.length > 1 ? "s" : ""}: ${C.counts.map((k, v) => k && `${k} ${["well placed", "worth a look", "should move"][v]}`).filter(Boolean).join(", ")}${C.missing.length ? `; ${C.missing.length} ${R.blocks ? "block" : "zone"}${C.missing.length > 1 ? "s" : ""} without a probe` : ""}.</p>` : ""}
+${X && !C ? `<p class="headline">${X.probes || R.sensors.length} probe${(X.probes || R.sensors.length) > 1 ? "s" : ""} at the spots below: about <b>${eur(X.scenarios[1].saved)} saved a year</b>${X.priced ? `, paying back <b>${paybackText(X.scenarios[1].payback, true)}</b>` : ""} (expected case).</p>` : ""}
 <p><button onclick="window.print()">Print or save as PDF</button></p></header>
 <h2>Field and data used</h2><dl>${dataRows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
 <h2>Plan</h2>${fieldSvg(R, ctx)}
-<div class="legend">${R.blocks ? R.blocks.map((b, bi) => `<span><b style="color:${zoneColor(bi)}">■</b> Block ${escapeHtml(b.name)} · ${fmt(b.ha, 1)} ha · ${R.sensors.filter((s) => s.zone === bi).map((s) => s.name + optTag(s)).join(", ") || "no probe"}</span>`).join("")
+${C ? `<p class="notes">◆ installed probes (green: good spot, amber: worth a look, red: should move); ○ recommended spots; dashed line: suggested move.</p>` : ""}<div class="legend">${R.blocks ? R.blocks.map((b, bi) => `<span><b style="color:${zoneColor(bi)}">■</b> Block ${escapeHtml(b.name)} · ${fmt(b.ha, 1)} ha · ${R.sensors.filter((s) => s.zone === bi).map((s) => s.name + optTag(s)).join(", ") || "no probe"}</span>`).join("")
   : R.sensors.map((s) => `<span><b style="color:${zoneColor(s.zone)}">■</b> Zone ${s.zone + 1} · ${fmt(s.share * 100, 0)}% · ${s.name}</span>`).join("")}</div>
-<h2>Sensor positions</h2><div class="wrap"><table><thead><tr><th>Sensor</th><th>Latitude</th><th>Longitude</th><th>${R.blocks ? "Block" : "Zone"} (share)</th><th>Elevation</th><th>Clay</th><th>NDVI</th></tr></thead><tbody>${table}</tbody></table></div>
-<h2>Why each spot was chosen</h2>${cards}
-${X ? `<h2>Return on investment</h2><p>${escapeHtml(roiBasis(X))} ${escapeHtml(roiCostText(X))}</p><div class="wrap">${roiTable(X)}</div>
+${C ? `<h2>Installed probes</h2><div class="wrap"><table><thead><tr><th>Probe</th><th>Latitude</th><th>Longitude</th><th>${R.blocks ? "Block" : "Zone"}</th><th>To border</th><th>Verdict</th><th>Suggestion</th></tr></thead><tbody>${checkRows(R, C, ctx)}</tbody></table></div>
+<h2>Each probe</h2>${C.probes.map((a) => `<section class="s"><h3><span style="background:${["#3f9a52", "#e0a02a", "#d0453a"][a.sev]};border-radius:4px">${a.sev ? "!" : "✓"}</span>${escapeHtml(a.name)} · ${a.verdict}</h3>
+    <p class="mono">${a.lat.toFixed(6)}, ${a.lon.toFixed(6)}${a.serial ? ` · device ${escapeHtml(a.serial)}` : ""}</p><ul>${a.lines.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>${a.suggest ? `<p><b>${escapeHtml(a.suggest)}</b>${a.ref && a.sev && a.move >= 3 ? ` <a href="https://www.google.com/maps/dir/?api=1&destination=${a.ref.s.lat.toFixed(6)},${a.ref.s.lon.toFixed(6)}">directions</a>` : ""}</p>` : ""}</section>`).join("")}
+${C.missing.length || C.optional.length ? `<h2>Missing probes</h2><ul>${C.missing.map((s) => `<li>${s.block != null ? `Block ${escapeHtml(s.block)}` : `Zone ${s.zone + 1}`} has no probe: recommended spot ${s.name}, ${s.lat.toFixed(6)}, ${s.lon.toFixed(6)}.</li>`).concat(C.optional.map((s) => `<li>Block ${escapeHtml(s.block)} is uneven (${escapeHtml(s.uneven)}): optional second probe at ${s.name}, ${s.lat.toFixed(6)}, ${s.lon.toFixed(6)}.</li>`)).join("")}</ul>` : ""}
+<h2>Recommended spots, for comparison</h2>` : "<h2>Sensor positions</h2>"}<div class="wrap"><table><thead><tr><th>Sensor</th><th>Latitude</th><th>Longitude</th><th>${R.blocks ? "Block" : "Zone"} (share)</th><th>Elevation</th><th>Clay</th><th>NDVI</th></tr></thead><tbody>${table}</tbody></table></div>
+${C ? "" : `<h2>Why each spot was chosen</h2>${cards}`}
+${X && !C ? `<h2>Return on investment</h2><p>${escapeHtml(roiBasis(X))} ${escapeHtml(roiCostText(X))}</p><div class="wrap">${roiTable(X)}</div>
 <p class="notes">Savings use the farmer's own figures and a water saving of ${X.scenarios.map((sc) => `${num(sc.rate)}%`).join(" / ")} (low / expected / high), in line with what Hydrascout probes typically save (10–30% of irrigation water, with the pumping hours that go with it). Payback counts irrigation seasons.</p>` : ""}
 <h2>Method and limits</h2><ul class="notes"><li>The field is sampled on a regular grid. Each point gets elevation, slope, relative position (hollow or rise), soil texture, NDVI and irrigation coverage when available. ${R.blocks ? "Each irrigation block gets one probe at its most typical point, away from the field edge and the block border; a block made of two clearly different parts gets an optional second probe." : "Points are grouped into zones with similar conditions, and each sensor sits at the most typical point of its zone, away from the field edge."}</li>${R.notes.map((n) => `<li>${escapeHtml(n)}</li>`).join("")}</ul>
 </body></html>`;
@@ -125,4 +136,15 @@ function openReport(R, ctx) {
   const w = window.open(url, "_blank");
   if (!w) download(`${fileBase(ctx)}-report.html`, "text/html", html);
   setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+function checkRows(R, C) {
+  return C.probes.map((a) => `<tr><td>${escapeHtml(a.name)}</td><td>${a.lat.toFixed(6)}</td><td>${a.lon.toFixed(6)}</td><td>${a.inside ? escapeHtml(R.blocks ? R.blocks[a.zone].name : String(a.zone + 1)) : "outside"}</td><td>${a.edge != null ? `${fmt(a.edge, 0)} m` : "–"}</td><td>${a.verdict}</td><td>${escapeHtml(a.suggest || "")}</td></tr>`).join("");
+}
+function exportCheckCsv(R, ctx) {
+  const q = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`, C = ctx.check;
+  const rows = [["name", "serial", "lat", "lon", "block_or_zone", "dist_to_border_m", "verdict", "suggested_spot", "suggested_lat", "suggested_lon", "move_m", "direction", "findings", "suggestion"]];
+  C.probes.forEach((a) => { const t = a.ref && a.ref.s; rows.push([q(a.name), q(a.serial || ""), a.lat.toFixed(7), a.lon.toFixed(7), q(a.inside ? (R.blocks ? R.blocks[a.zone].name : a.zone + 1) : "outside"), a.edge != null ? fmt(a.edge, 0) : "", q(a.verdict),
+    t ? t.name : "", t ? t.lat.toFixed(7) : "", t ? t.lon.toFixed(7) : "", a.move != null ? fmt(a.move, 0) : "", a.dir || "", q(a.lines.join(" ")), q(a.suggest || "")]); });
+  download(`${fileBase(ctx)}-check.csv`, "text/csv", "\ufeff" + rows.map((r) => r.join(",")).join("\n") + "\n");
 }

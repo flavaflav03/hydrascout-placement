@@ -176,7 +176,11 @@ const S = { field: null, isExample: false, fieldFromBlocks: false, mode: null, r
 // Example field so the tool opens in a working state (farmland in the Beauce, France).
 const EXAMPLE_FIELD = [[48.2862, 1.6043], [48.2871, 1.6121], [48.2832, 1.6139], [48.2808, 1.6098], [48.2817, 1.6038]];
 
-function clearResult() { const had = S.result; S.result = null; gridLayer.clearLayers(); sensorLayer.clearLayers(); $("results").hidden = true; if (had) roiDefaults(); }
+function clearResult() {
+  const had = S.result; S.result = null; gridLayer.clearLayers(); sensorLayer.clearLayers(); $("results").hidden = true;
+  if (S.check) { S.check = null; $("checkResults").hidden = true; renderProbes(); }
+  if (had) roiDefaults();
+}
 
 function setField(latlngs, { fit = true, example = false, fromBlocks = false, keepNdvi = false } = {}) {
   S.field = latlngs; S.isExample = example; S.fieldFromBlocks = fromBlocks; clearResult(); renderKey();
@@ -293,28 +297,39 @@ $("searchForm").addEventListener("submit", async (e) => {
 const LOGGER_URL = "https://srv2118288.hstgr.cloud"; // HSTI Logger Overview (same VPS as the hosted app)
 const loggerUrl = () => (LOGGER_URL || store.get("hs.loggerUrl") || "").replace(/\/+$/, "");
 $("loggerCfg").hidden = !!loggerUrl();
+// The same lookup serves step 1 of "Install new probes" (one serial: puts the search pin there) and the installed
+// probes of "Check probes already installed" (a list of serials: one probe on the map per device).
+const DEV = { queue: [], forProbe: false, found: 0, failed: [], total: 0 };
+const devStatus = (msg, err) => setStatus(msg, err, DEV.forProbe ? "probeStatus" : "searchStatus");
+function loggerReady() {
+  if (LOGGER_URL) return true;
+  const u = $("loggerUrl").value.trim() || store.get("hs.loggerUrl") || "";
+  if (!/^https?:\/\/[^\s/]+/.test(u)) { $("loggerCfg").hidden = false; devStatus("Enter the HSTI Logger Overview address first (ask your admin), in step “Find the field”, then try again.", true); return false; }
+  store.set("hs.loggerUrl", u.replace(/\/+$/, ""));
+  return true;
+}
 $("deviceForm").addEventListener("submit", (e) => {
   e.preventDefault();
+  DEV.forProbe = false; DEV.queue = [];
   const serial = $("devSerial").value.replace(/\s+/g, "");
   if (!/^\d{4,15}$/.test(serial)) { setSearchStatus("Enter the device serial number (digits only), as shown in Device Manager.", true); return; }
-  if (!LOGGER_URL) {
-    const u = $("loggerUrl").value.trim() || store.get("hs.loggerUrl") || "";
-    if (!/^https?:\/\/[^\s/]+/.test(u)) { $("loggerCfg").hidden = false; $("loggerUrl").focus(); setSearchStatus("Enter the HSTI Logger Overview address first (ask your admin), then press Use its GPS again.", true); return; }
-    store.set("hs.loggerUrl", u.replace(/\/+$/, ""));
-  }
+  if (!loggerReady()) return;
   store.set("hs.devSerial", serial);
+  lookupDevice(serial);
+});
+function lookupDevice(serial) {
   // Hosted on the same server as Logger Overview: read its device list directly with the logger's login cookie.
   if (sameOriginLogger()) { lookupDeviceDirect(serial); return; }
   const url = `${loggerUrl()}/locate.html?serial=${serial}`;
   const w = window.open(url, "hs-locate", "popup,width=480,height=640");
-  if (!w) { location.href = url; return; }
-  setSearchStatus(`Looking up device ${serial} in HSTI Logger Overview… If it asks you to log in, log in there, then press Use its GPS again.`);
-});
+  if (!w) { store.set("hs.devQueue", DEV.forProbe ? { rest: DEV.queue, found: DEV.found, failed: DEV.failed, total: DEV.total } : null); location.href = url; return; }
+  devStatus(`Looking up device ${serial} in HSTI Logger Overview… If it asks you to log in, log in there, then try again.`);
+}
 function sameOriginLogger() {
   try { return new URL(loggerUrl()).origin === location.origin; } catch (err) { return false; }
 }
 async function lookupDeviceDirect(serial) {
-  setSearchStatus(`Looking up device ${serial} in HSTI Logger Overview…`);
+  devStatus(`Looking up device ${serial} in HSTI Logger Overview…${DEV.forProbe && DEV.total > 1 ? ` (${DEV.found + DEV.failed.length + 1} of ${DEV.total})` : ""}`);
   const find = async (refresh) => {
     const r = await fetch(`${loggerUrl()}/api/devices${refresh ? "?refresh=1" : ""}`, { credentials: "same-origin", headers: { Accept: "application/json" } });
     const type = r.headers.get("content-type") || "";
@@ -333,8 +348,8 @@ async function lookupDeviceDirect(serial) {
   } catch (err) {
     if (err.message === "login") {
       window.open(`${loggerUrl()}/login`, "_blank");
-      setSearchStatus("Log in to HSTI Logger Overview in the tab that just opened, then come back and press Use its GPS again.", true);
-    } else setSearchStatus(`Could not look up device ${serial}: ${err.message}`, true);
+      devStatus(`Log in to HSTI Logger Overview in the tab that just opened, then come back and press ${DEV.forProbe ? "Find" : "Use its GPS"} again.`, true);
+    } else devStatus(`Could not look up device ${serial}: ${err.message}`, true);
   }
 }
 window.addEventListener("message", (e) => {
@@ -342,25 +357,53 @@ window.addEventListener("message", (e) => {
   if (e.origin !== origin || !e.data || e.data.type !== "hydrascout-device") return;
   showDevice(e.data);
 });
+const DEV_ERR = { nogps: "no GPS position yet", notfound: "not found in Device Manager" };
 function showDevice(d) {
   const serial = String(d.device || "").replace(/\D/g, "");
   if (!serial) return;
+  const lat = +d.lat, lon = +d.lng;
+  const bad = d.error ? DEV_ERR[d.error] || d.error
+    : d.lat === "" || d.lng === "" || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180 ? "the position received is not valid" : null;
+  if (DEV.forProbe) {
+    if (bad) DEV.failed.push(`${serial} (${bad})`);
+    else { addProbe({ serial, name: `#${serial}`, lat, lon, how: "gps", seen: d.seen || null, product: d.product || null }, { fit: false }); DEV.found++; }
+    nextDevice(); return;
+  }
   $("devSerial").value = serial;
-  if (d.error) {
-    setSearchStatus(d.error === "nogps" ? `Device ${serial} has no GPS position yet in Device Manager.` : d.error === "notfound" ? `Device ${serial} was not found in Device Manager. Check the serial.` : `Could not read device ${serial}: ${d.error}`, true);
+  if (bad) {
+    setSearchStatus(d.error === "nogps" ? `Device ${serial} has no GPS position yet in Device Manager.` : d.error === "notfound" ? `Device ${serial} was not found in Device Manager. Check the serial.` : d.error ? `Could not read device ${serial}: ${d.error}` : `Device ${serial}: ${bad}.`, true);
     return;
   }
-  const lat = +d.lat, lon = +d.lng;
-  if (d.lat === "" || d.lng === "" || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) { setSearchStatus(`Device ${serial}: the position received is not valid.`, true); return; }
   const when = d.seen && !Number.isNaN(Date.parse(d.seen)) ? new Date(d.seen).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : null;
   goTo({ lat, lon, zoom: 17, label: `Device ${serial}` });
   setSearchStatus(`Device ${serial}${d.product ? ` (${d.product})` : ""}: last GPS position ${lat.toFixed(6)}, ${lon.toFixed(6)}${when ? `, connected ${when}` : ""}. Draw the field around it.`);
 }
+// Installed probes: look the serials up one after the other, then frame them all on the map.
+function nextDevice() {
+  const s = DEV.queue.shift();
+  if (s) { lookupDevice(s); return; }
+  const { found, failed } = DEV;
+  DEV.forProbe = false; store.set("hs.devQueue", null); fitProbes();
+  const msg = `${found ? `${found} probe${found > 1 ? "s" : ""} placed at ${found > 1 ? "their" : "its"} last GPS position.` : "No probe placed."}${failed.length ? ` Not found: ${failed.join(", ")}. Check the ID or place ${failed.length > 1 ? "them" : "it"} by hand.` : ""}${found ? " Next: draw the irrigation blocks around them." : ""}`;
+  setStatus(msg, !!failed.length, "probeStatus");
+}
+$("probeForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const ids = [...new Set($("probeIds").value.split(/[\s,;]+/).filter(Boolean))];
+  const bad = ids.filter((s) => !/^\d{4,15}$/.test(s));
+  if (!ids.length || bad.length) { setStatus(bad.length ? `Not a device ID: ${bad.join(", ")}. Use the serial number (digits only), as shown in Device Manager.` : "Type at least one device ID.", true, "probeStatus"); return; }
+  DEV.forProbe = true; DEV.found = 0; DEV.failed = []; DEV.total = ids.length; DEV.queue = ids.slice(1);
+  store.set("hs.probeIds", $("probeIds").value);
+  if (!loggerReady()) { DEV.forProbe = false; return; }
+  lookupDevice(ids[0]);
+});
 // Coming back in this tab (pop-up blocked).
 function readDeviceHash() {
   const h = new URLSearchParams(location.hash.slice(1));
   if (!h.get("device")) return;
   history.replaceState(null, "", location.pathname + location.search);
+  const q = store.get("hs.devQueue");
+  if (q) Object.assign(DEV, { forProbe: true, queue: q.rest || [], found: q.found || 0, failed: q.failed || [], total: q.total || 1 });
   showDevice(Object.fromEntries(h));
 }
 
@@ -399,8 +442,13 @@ function setMode(mode, block = null) {
   if (mode) map.doubleClickZoom.disable(); else map.doubleClickZoom.enable();
   map.getContainer().style.cursor = mode ? "crosshair" : "";
   $("pivCentreBtn").classList.toggle("active", mode === "pivot"); setLabel($("pivCentreBtn"), mode === "pivot" ? "Cancel" : "Place pivot centre on map", mode === "pivot" ? "cross" : "mapPin");
+  if (mode !== "place") S.placeFor = null;
+  $("probeAddBtn").classList.toggle("active", mode === "probe"); setLabel($("probeAddBtn"), mode === "probe" ? "Cancel" : "Place one by hand", mode === "probe" ? "cross" : "add");
   renderDraft(); if (S.blocks) renderBlockRows();
   if (mode === "pivot") drawbar("Tap the pivot centre on the map");
+  if (mode === "probe") drawbar("Tap the map where the probe is installed", [["Cancel", () => setMode(null)]]);
+  if (mode === "place") drawbar(`Tap the map where ${S.placeFor.name} should go`, [["Cancel", () => setMode(null)]]);
+  if (S.result && !S.check) renderResult(); // the "Set by hand" buttons show the mode
 }
 function finishDraw() {
   if (S.draft.length < 3) return;
@@ -412,6 +460,8 @@ function finishDraw() {
 map.on("click", (e) => {
   if (S.mode === "draw" || S.mode === "block") { S.draft.push([e.latlng.lat, e.latlng.lng]); renderDraft(); }
   else if (S.mode === "pivot") { irr.pivotCentre = [e.latlng.lat, e.latlng.lng]; setMode(null); updateIrrigation(); }
+  else if (S.mode === "probe") { setMode(null); addProbe({ lat: e.latlng.lat, lon: e.latlng.lng, how: "hand" }, { fit: false }); }
+  else if (S.mode === "place") { const s = S.placeFor; setMode(null); placeSensor(s, e.latlng.lat, e.latlng.lng); }
   else identify(e.latlng);
 });
 
@@ -642,13 +692,13 @@ function renderNeed() {
     } else if (sel.dataset.fromAsk) sel.value = "auto";
     sel.dataset.fromAsk = want ? "1" : "";
   }
-  $("countHint").textContent = drawn ? "One probe per block drawn in step 3, plus an optional one where a block is clearly uneven."
-    : want ? `Set from your answer in step 2: one probe per irrigation block. Without block borders the field is split into ${want} zone${want > 1 ? "s" : ""}, one probe each.`
+  $("countHint").textContent = drawn ? "One probe per block drawn, plus an optional one where a block is clearly uneven."
+    : want ? `Set from your number of irrigation blocks: one probe per irrigation block. Without block borders the field is split into ${want} zone${want > 1 ? "s" : ""}, one probe each.`
     : "No block map? Pick the number of irrigation blocks here: one probe per block.";
   line.hidden = !want;
   if (!want) return;
   const probes = `<b>${want} probe${want > 1 ? "s" : ""}</b>, one per block`;
-  line.innerHTML = !drawn ? `You need ${probes}. Draw the borders of each block in step 3 so every probe lands inside its own block, away from its borders.`
+  line.innerHTML = !drawn ? `You need ${probes}. Draw the borders of each block (“Draw the blocks”) so every probe lands inside its own block, away from its borders.`
     : drawn < want ? `You need ${probes}. ${drawn} of ${want} blocks drawn: blocks without borders get no probe.`
     : `You need ${probes}. All ${want} blocks are drawn.`;
 }
@@ -715,6 +765,8 @@ function readPolygons(txt) {
 // ---------- analysis ----------
 async function analyze() {
   if (!S.field) return;
+  const check = appMode() === "check";
+  if (check && !S.probes.length) { setStatus("Add your installed probes first: type their device IDs, place them by hand or import them.", true); return; }
   const btn = $("analyzeBtn"); btn.disabled = true;
   try {
     const G = buildGrid(S.field, S.fieldFromBlocks ? drawnBlocks().map((b) => b.ring) : null), ha = G.area / 10000, pts = G.pts;
@@ -736,8 +788,8 @@ async function analyze() {
       if (s < soilIdx.length - 1) await sleep(1200);
     }
 
-    S.result = computePlacement({ G, elev, soilSamples, ndvi: S.ndvi, irrigation, request: $("nSensors").value, blocks: drawnBlocks(), fieldFromBlocks: S.fieldFromBlocks, buffer: Math.max(0, +$("buffer").value || 0) });
-    renderResult();
+    S.result = computePlacement({ G, elev, soilSamples, ndvi: S.ndvi, irrigation, request: check ? String(askedBlocks() || S.probes.length) : $("nSensors").value, blocks: drawnBlocks(), fieldFromBlocks: S.fieldFromBlocks, buffer: Math.max(0, +$("buffer").value || 0) });
+    if (check) runCheck(); else renderResult();
     setStatus("");
   } catch (err) {
     console.error(err);
@@ -775,12 +827,7 @@ function renderResult() {
     // Pins can be dragged to adjust a spot; the notes and every export follow the new position.
     const mk = L.marker([s.lat, s.lon], { draggable: true, autoPan: true, title: `${s.name}: drag to move`, icon: L.divIcon({ className: `sensor-pin${s.moved ? " moved" : ""}`, html: `<span style="background:${col}">${n + 1}</span>`, iconSize: [30, 30], iconAnchor: [15, 15] }) })
       .bindPopup(`<b>${s.name}</b><br>${s.why.map(escapeHtml).join("<br>")}${s.tip ? `<br><i>${escapeHtml(s.tip)}</i>` : ""}`).addTo(sensorLayer);
-    mk.on("dragend", () => {
-      const ll = mk.getLatLng(), [x, y] = R.G.P.fwd(ll.lat, ll.lng);
-      if (!(R.blocks ? R.blocks.some((b) => inPoly(x, y, b.xy)) : inPoly(x, y, R.G.poly))) { mk.setLatLng([s.lat, s.lon]); setStatus(`${s.name} must stay inside ${R.blocks ? "a block" : "the field"}.`, true); return; }
-      moveSensor(R, s, ll.lat, ll.lng); setStatus(`${s.name} moved. Its notes, the report and the exports use the new position.`);
-      renderResult();
-    });
+    mk.on("dragend", () => { const ll = mk.getLatLng(); if (!placeSensor(s, ll.lat, ll.lng)) mk.setLatLng([s.lat, s.lon]); });
     const card = document.createElement("article"); card.className = `sensor${s.moved ? " moved" : ""}`;
     const coords = `${s.lat.toFixed(6)}, ${s.lon.toFixed(6)}`;
     card.innerHTML = `<h3><span class="badge" style="background:${col}">${n + 1}</span>${s.name}${s.block != null ? ` <span class="tag">Block ${escapeHtml(s.block)}</span>` : ""}${s.optional ? ' <span class="tag">Optional</span>' : ""}${s.moved ? ' <span class="tag">Moved</span>' : ""}</h3>
@@ -789,14 +836,21 @@ function renderResult() {
       ${s.tip ? `<p class="hint">Installation: ${escapeHtml(s.tip)}</p>` : ""}
       <div class="row"><button type="button" data-act="zoom">${icon("search")}Show</button><button type="button" data-act="copy">${icon("link")}Copy coordinates</button>
       <a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${s.lat.toFixed(6)},${s.lon.toFixed(6)}">${icon("externalLink")}Navigate</a>
-      ${s.moved ? `<button type="button" data-act="reset">${icon("arrowLeft")}Back to recommended spot</button>` : ""}${s.optional ? `<button type="button" data-act="drop">${icon("trash")}Drop this optional probe</button>` : ""}</div>`;
+      <button type="button" data-act="place" class="${S.mode === "place" && S.placeFor === s ? "active" : ""}">${icon(S.mode === "place" && S.placeFor === s ? "cross" : "pen")}${S.mode === "place" && S.placeFor === s ? "Cancel" : "Set by hand"}</button>
+      ${s.moved ? `<button type="button" data-act="reset">${icon("arrowLeft")}Back to recommended spot</button>` : ""}${s.optional ? `<button type="button" data-act="drop">${icon("trash")}Drop this optional probe</button>` : ""}</div>
+      ${s.moved ? `<input type="text" class="reason" data-act="reason" maxlength="200" placeholder="Why here? e.g. the customer's choice, near the pump" aria-label="Why ${escapeHtml(s.name)} is placed here" value="${escapeHtml(s.reason || "")}">` : ""}`;
     card.querySelector('[data-act="zoom"]').onclick = () => { map.setView([s.lat, s.lon], Math.max(map.getZoom(), 17)); if (window.innerWidth <= 760) $("mapwrap").scrollIntoView({ behavior: "smooth" }); };
     card.querySelector('[data-act="copy"]').onclick = async (ev) => { try { await navigator.clipboard.writeText(coords); setLabel(ev.currentTarget, "Copied", "check"); } catch (e) { setLabel(ev.currentTarget, coords); } };
     if (s.optional) card.querySelector('[data-act="drop"]').onclick = () => {
       R.sensors.splice(R.sensors.indexOf(s), 1); R.sensors.forEach((t, k) => { t.name = `HS-${k + 1}`; });
       setStatus(`Optional probe removed: block ${s.block} keeps one probe.`); renderResult();
     };
-    if (s.moved) card.querySelector('[data-act="reset"]').onclick = () => { resetSensor(s); setStatus(`${s.name} is back on the recommended spot.`); renderResult(); };
+    if (s.moved) card.querySelector('[data-act="reset"]').onclick = () => { resetSensor(s); delete s.reason; setStatus(`${s.name} is back on the recommended spot.`); renderResult(); };
+    if (s.moved) card.querySelector('[data-act="reason"]').oninput = (ev) => { s.reason = ev.target.value.trim() || null; };
+    card.querySelector('[data-act="place"]').onclick = () => {
+      if (S.mode === "place" && S.placeFor === s) { setMode(null); return; }
+      S.placeFor = s; setMode("place"); if (window.innerWidth <= 760) $("mapwrap").scrollIntoView({ behavior: "smooth" });
+    };
     list.appendChild(card);
   });
   $("notes").innerHTML = R.notes.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
@@ -825,6 +879,16 @@ function renderGrid() {
   });
 }
 $("view").addEventListener("change", renderGrid);
+// A spot set by hand (dragged, or tapped on the map after "Set by hand"): any point inside a block (or the field)
+// is accepted, for instance where the customer wants it; the notes warn when it breaks a rule, such as a block border.
+function placeSensor(s, lat, lon) {
+  const R = S.result; if (!R) return false;
+  const [x, y] = R.G.P.fwd(lat, lon);
+  if (!(R.blocks ? R.blocks.some((b) => inPoly(x, y, b.xy)) : inPoly(x, y, R.G.poly))) { setStatus(`${s.name} must stay inside ${R.blocks ? "a block" : "the field"}.`, true); return false; }
+  moveSensor(R, s, lat, lon);
+  setStatus(`${s.name} set by hand. Add why below its card if you like: the report and the exports use this position.`);
+  renderResult(); return true;
+}
 
 // ---------- return on investment ----------
 // The farmer's own water and pumping figures and HSTI's probe price (entered by hand: it depends on the probe
@@ -840,7 +904,7 @@ function roiDefaults() {
   const setAuto = (id, val) => { const el = $(id); if (el.dataset.typed) return; el.value = val == null ? "" : val; };
   const d = drawnBlocks(), area = d.length ? d.reduce((a, b) => a + fieldAreaHa(b.ring), 0) : S.field && !S.isExample ? fieldAreaHa(S.field) : null;
   setAuto("roiArea", area == null ? null : +area.toFixed(1));
-  setAuto("roiProbes", S.result ? S.result.sensors.length : askedBlocks() || drawnBlocks().length || null);
+  setAuto("roiProbes", appMode() === "check" && S.probes.length ? S.probes.length : S.result ? S.result.sensors.length : askedBlocks() || drawnBlocks().length || null);
   renderRoi();
 }
 function renderRoi() {
@@ -863,6 +927,163 @@ document.getElementById("roiStep").addEventListener("input", (e) => {
   if (e.target.value === "" && (e.target.id === "roiArea" || e.target.id === "roiProbes")) roiDefaults(); else renderRoi();
 });
 
+// ---------- start choice ----------
+// The app opens on one question: install new probes (find how many and where), or check probes already installed.
+const MODE_NAME = { new: ["add", "Installing new probes"], check: ["check", "Checking installed probes"] };
+const appMode = () => $("panel").dataset.mode || null;
+function setAppMode(m) {
+  if (S.mode) setMode(null);
+  $("panel").dataset.mode = m || ""; store.set("hs.appMode", m || null);
+  if (m) {
+    $("modeName").innerHTML = `${icon(MODE_NAME[m][0])}<span>${MODE_NAME[m][1]}</span>`;
+    setLabel($("analyzeBtn"), m === "check" ? "Check my probes" : "Find sensor spots", m === "check" ? "check" : "sparkles");
+  }
+  clearResult(); setStatus(""); renderProbes(); roiDefaults();
+  $("panel").scrollTop = 0;
+  if (m === "check" && S.probes.length) fitProbes();
+}
+$("modePick").addEventListener("click", (e) => { const b = e.target.closest("[data-mode]"); if (b) setAppMode(b.dataset.mode); });
+$("modeChange").addEventListener("click", () => setAppMode(null));
+
+// ---------- installed probes ----------
+// Probes already in the ground, from their device GPS, placed by hand or imported. Each can be dragged to its
+// true position; once checked, the check follows the pin as it moves.
+const probeLayer = L.layerGroup().addTo(map);
+S.probes = []; // [{ name, serial, lat, lon, how: "gps" | "hand" | "file" }]
+S.check = null;
+function nextProbeName() { for (let i = 1; ; i++) { const n = `Probe ${i}`; if (!S.probes.some((q) => q.name === n)) return n; } }
+function addProbe(p, { fit = true } = {}) {
+  const same = p.serial && S.probes.find((q) => q.serial === p.serial);
+  if (same) Object.assign(same, p); else S.probes.push({ ...p, name: p.name || nextProbeName() });
+  probesChanged(); if (fit) fitProbes();
+}
+function probesChanged() {
+  store.set("hs.probes", S.probes);
+  if (S.result && appMode() === "check") runCheck(); else renderProbes();
+  roiDefaults();
+}
+function fitProbes() {
+  if (!S.probes.length) return;
+  const b = L.latLngBounds(S.probes.map((p) => [p.lat, p.lon]));
+  if (S.field && !S.isExample) b.extend(L.polygon(S.field).getBounds());
+  map.fitBounds(b, { padding: [60, 60], maxZoom: 17 });
+}
+const SEV_TAG = ["good", "look", "move"];
+function renderProbes() {
+  probeLayer.clearLayers();
+  const on = appMode() === "check", C = on && S.check, R = S.result;
+  $("probeList").innerHTML = S.probes.map((p, i) => {
+    const a = C && C.probes[i];
+    return `<li><i class="pk${a ? ` sev${a.sev}` : ""}"></i><input type="text" value="${escapeHtml(p.name)}" data-i="${i}" aria-label="Name of probe ${i + 1}" maxlength="30">
+      <span class="ha">${p.how === "gps" ? "GPS" : p.how === "file" ? "file" : "by hand"}${p.moved ? ", moved" : ""}</span>
+      <button type="button" data-zoom="${i}" aria-label="Show ${escapeHtml(p.name)} on the map">${icon("search")}</button><button type="button" data-del="${i}" aria-label="Remove ${escapeHtml(p.name)}">${icon("trash")}</button></li>`;
+  }).join("");
+  if (!on) return;
+  if (C) {
+    // Recommended spots (hollow, numbered) and a dashed line from each probe that should move to where it could go.
+    R.sensors.forEach((s, n) => L.marker([s.lat, s.lon], { keyboard: false, zIndexOffset: -100, icon: L.divIcon({ className: "rec-pin", html: `<span>${n + 1}</span>`, iconSize: [24, 24], iconAnchor: [12, 12] }) })
+      .bindPopup(`<b>Recommended spot ${s.name}</b>${s.block != null ? ` · block ${escapeHtml(s.block)}` : ""}${s.optional ? " (optional)" : ""}<br>${s.why.map(escapeHtml).join("<br>")}`).addTo(probeLayer));
+    C.probes.forEach((a) => { if (a.sev && a.ref && a.move >= 3) L.polyline([[a.lat, a.lon], [a.ref.s.lat, a.ref.s.lon]], { color: a.sev === 2 ? "#d0453a" : "#e0a02a", weight: 2.5, dashArray: "6 6", interactive: false }).addTo(probeLayer); });
+  }
+  S.probes.forEach((p, i) => {
+    const a = C && C.probes[i];
+    const mk = L.marker([p.lat, p.lon], { draggable: true, autoPan: true, title: `${p.name}: drag to its true position`, icon: L.divIcon({ className: "probe-pin", html: `<i class="pk${a ? ` sev${a.sev}` : ""}"></i>`, iconSize: [22, 22], iconAnchor: [11, 11] }) })
+      .bindTooltip(escapeHtml(p.name), { permanent: true, direction: "right", offset: [10, 0], className: "probe-label" }).addTo(probeLayer);
+    if (a) mk.bindPopup(`<b>${escapeHtml(p.name)}</b>: ${a.verdict}<br>${a.lines.map(escapeHtml).join("<br>")}${a.suggest ? `<br><i>${escapeHtml(a.suggest)}</i>` : ""}`);
+    mk.on("dragend", () => { const ll = mk.getLatLng(); p.lat = ll.lat; p.lon = ll.lng; p.moved = true; probesChanged(); });
+  });
+}
+$("probeList").addEventListener("input", (e) => {
+  const i = e.target.dataset.i; if (i == null) return;
+  S.probes[+i].name = e.target.value.trim() || nextProbeName(); store.set("hs.probes", S.probes);
+  const lay = probeLayer.getLayers().filter((l) => l.options.draggable)[+i]; if (lay) lay.setTooltipContent(escapeHtml(S.probes[+i].name));
+});
+$("probeList").addEventListener("change", () => { if (S.check) runCheck(); });
+$("probeList").addEventListener("click", (e) => {
+  const z = e.target.dataset.zoom, d = e.target.dataset.del;
+  if (z != null) { const p = S.probes[+z]; map.setView([p.lat, p.lon], Math.max(map.getZoom(), 17)); if (window.innerWidth <= 760) $("mapwrap").scrollIntoView({ behavior: "smooth" }); }
+  if (d != null) { S.probes.splice(+d, 1); probesChanged(); }
+});
+$("probeAddBtn").addEventListener("click", () => { setMode(S.mode === "probe" ? null : "probe"); if (S.mode && window.innerWidth <= 760) $("mapwrap").scrollIntoView({ behavior: "smooth" }); });
+$("probeFile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  let pts = [];
+  try { pts = readPoints(await f.text()); } catch (err) { console.warn(err); }
+  if (!pts.length) { setStatus("No probe position found in that file. Use a CSV with lat and lon columns (name or serial optional), or a GPX, KML or GeoJSON file of points, in WGS84.", true, "probeStatus"); return; }
+  pts.forEach((p) => addProbe({ ...p, how: "file" }, { fit: false }));
+  fitProbes(); setStatus(`${pts.length} probe${pts.length > 1 ? "s" : ""} imported.`, false, "probeStatus");
+});
+// Points from a CSV (lat/lon columns, or lat, lon[, name] without a header), GPX waypoints, KML or GeoJSON points.
+function readPoints(txt) {
+  const t = txt.replace(/^﻿/, "").trim(), out = [];
+  const add = (lat, lon, name, serial) => { lat = +lat; lon = +lon; if (Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && (lat || lon)) out.push({ lat, lon, name: name ? String(name).trim() : null, serial: serial && /^\d{4,15}$/.test(String(serial).trim()) ? String(serial).trim() : null }); };
+  if (t.startsWith("<")) {
+    const doc = new DOMParser().parseFromString(t, "application/xml"), txtOf = (el, sel) => { const n = el.querySelector(sel); return n ? n.textContent : null; };
+    doc.querySelectorAll("wpt").forEach((w) => add(w.getAttribute("lat"), w.getAttribute("lon"), txtOf(w, "name")));
+    doc.querySelectorAll("Placemark").forEach((pm) => { const c = txtOf(pm, "Point coordinates"); if (c) { const [lon, lat] = c.trim().split(","); add(lat, lon, txtOf(pm, "name")); } });
+    return out;
+  }
+  if (t.startsWith("{") || t.startsWith("[")) {
+    const g = JSON.parse(t), feats = g.type === "FeatureCollection" ? g.features : g.type === "Feature" ? [g] : [];
+    for (const f of feats) {
+      const pr = f.properties || {}, gm = f.geometry || {};
+      if (pr.kind === "field") continue;
+      const pts = gm.type === "Point" ? [gm.coordinates] : gm.type === "MultiPoint" ? gm.coordinates : [];
+      pts.forEach(([lon, lat]) => add(lat, lon, pr.name || pr.nom, pr.serial || pr.device || pr.id));
+    }
+    return out;
+  }
+  const lines = t.split(/\r?\n/).filter((l) => l.trim()), delim = [";", "\t", ","].find((d) => lines[0].includes(d)) || ",";
+  const cells = (l) => { const r = []; let cur = "", q = false; for (let i = 0; i < l.length; i++) { const ch = l[i]; if (q) { if (ch === '"' && l[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') q = false; else cur += ch; } else if (ch === '"') q = true; else if (ch === delim) { r.push(cur); cur = ""; } else cur += ch; } r.push(cur); return r.map((c) => c.trim()); };
+  const head = cells(lines[0]).map((h) => h.toLowerCase()), col = (...names) => head.findIndex((h) => names.includes(h));
+  let iLat = col("lat", "latitude", "y"), iLon = col("lon", "lng", "long", "longitude", "x"), iName = col("name", "nom", "label"), iSer = col("serial", "device", "device id", "id", "imei");
+  const num = (s) => s.replace(",", ".");
+  if (iLat < 0 || iLon < 0) { iLat = 0; iLon = 1; iName = 2; iSer = -1; } else lines.shift();
+  for (const l of lines) { const c = cells(l); add(num(c[iLat] || ""), num(c[iLon] || ""), iName >= 0 ? c[iName] : null, iSer >= 0 ? c[iSer] : null); }
+  return out;
+}
+
+// ---------- probe check ----------
+function runCheck() {
+  S.check = assessProbes(S.result, S.probes);
+  renderCheck(); renderProbes(); roiDefaults();
+}
+function renderCheck() {
+  const R = S.result, C = S.check; if (!R || !C) return;
+  $("results").hidden = true; $("checkResults").hidden = false;
+  $("view").innerHTML = '<option value="zones">Zones</option>'; renderGrid(); // light zone shading under the probes
+  const [g, l, m] = C.counts, n = C.probes.length;
+  $("checkHeadline").innerHTML = `<b>${n} probe${n > 1 ? "s" : ""} checked:</b> ${[g && `${g} well placed`, l && `${l} worth a look`, m && `${m} should move`].filter(Boolean).join(", ")}.`
+    + (C.missing.length ? ` <b>${C.missing.length} ${R.blocks ? "block" : "zone"}${C.missing.length > 1 ? "s have" : " has"} no probe.</b>` : "");
+  const list = $("checkList"); list.innerHTML = "";
+  C.probes.forEach((a, i) => {
+    const p = S.probes[i], card = document.createElement("article"); card.className = `sensor check sev${a.sev}`;
+    const coords = `${a.lat.toFixed(6)}, ${a.lon.toFixed(6)}`, t = a.ref && a.ref.s;
+    card.innerHTML = `<h3><i class="pk sev${a.sev}"></i>${escapeHtml(a.name)} <span class="tag v-${SEV_TAG[a.sev]}">${a.verdict}</span>${a.inside && R.blocks ? ` <span class="tag">Block ${escapeHtml(R.blocks[a.zone].name)}</span>` : ""}</h3>
+      <div class="coords">${coords}${p.serial ? ` · device ${p.serial}` : ""}${a.edge != null ? ` · ${fmt(a.edge, 0)} m from the border` : ""}</div>
+      <ul>${a.lines.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>
+      ${a.suggest ? `<p class="suggest">${escapeHtml(a.suggest)}</p>` : ""}
+      <div class="row"><button type="button" data-act="zoom">${icon("search")}Show</button>
+      ${t && a.sev && a.move >= 3 ? `<a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${t.lat.toFixed(6)},${t.lon.toFixed(6)}">${icon("externalLink")}Navigate to ${t.name}</a>
+      <button type="button" data-act="try">${icon("mapPin")}Try it at ${t.name}</button>` : ""}</div>`;
+    card.querySelector('[data-act="zoom"]').onclick = () => { map.setView([a.lat, a.lon], Math.max(map.getZoom(), 17)); if (window.innerWidth <= 760) $("mapwrap").scrollIntoView({ behavior: "smooth" }); };
+    const tr = card.querySelector('[data-act="try"]');
+    if (tr) tr.onclick = () => { p.lat = t.lat; p.lon = t.lon; p.moved = true; setStatus(`${p.name} moved to ${t.name} to see the result. Drag it back, or remove and add it again, to undo.`); probesChanged(); };
+    list.appendChild(card);
+  });
+  const miss = C.missing.map((s) => `<li><b>${s.block != null ? `Block ${escapeHtml(s.block)}` : `Zone ${s.zone + 1}`} has no probe.</b> Recommended spot ${s.name}: ${s.lat.toFixed(6)}, ${s.lon.toFixed(6)}. <button type="button" class="link" data-add="${R.sensors.indexOf(s)}">Add a probe there</button></li>`)
+    .concat(C.optional.map((s) => `<li>Block ${escapeHtml(s.block)} is uneven (${escapeHtml(s.uneven)}). An optional second probe at ${s.name} would show whether that part needs different watering. <button type="button" class="link" data-add="${R.sensors.indexOf(s)}">Add a probe there</button></li>`));
+  $("checkMissing").innerHTML = miss.length ? `<h3 class="sub-h">Missing probes</h3><ul class="missing">${miss.join("")}</ul>` : "";
+  $("checkNotes").innerHTML = R.notes.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
+}
+$("checkMissing").addEventListener("click", (e) => {
+  const k = e.target.dataset.add; if (k == null) return;
+  const s = S.result.sensors[+k]; addProbe({ lat: s.lat, lon: s.lon, how: "hand", name: `New ${s.name}` }, { fit: false });
+});
+const checkCtx = () => ({ ...exportCtx(), check: S.check, probes: S.probes });
+$("dlCheckReport").onclick = () => S.check && openReport(S.result, checkCtx());
+$("dlCheckCsv").onclick = () => S.check && exportCheckCsv(S.result, checkCtx());
+
 // ---------- tabs ----------
 // Probe placement and the return on investment are two tabs of the panel, so each stays short.
 function showTab(t) {
@@ -876,7 +1097,7 @@ $("toRoi").addEventListener("click", () => { showTab("roi"); $("panel").scrollTo
 // ---------- exports ----------
 const exportCtx = () => ({ field: S.field, fieldName: $("fieldName").value.trim(), askedBlocks: askedBlocks(), roi: computeRoi(readRoi()) });
 $("dlReport").onclick = () => S.result && openReport(S.result, exportCtx());
-$("dlReportRoi").onclick = () => { if (S.result) openReport(S.result, exportCtx()); else { showTab("place"); setStatus("Find the sensor spots first (step 6), then open the report."); } };
+$("dlReportRoi").onclick = () => { if (S.check) openReport(S.result, checkCtx()); else if (S.result) openReport(S.result, exportCtx()); else { showTab("place"); setStatus("Find the sensor spots (or check your probes) first, then open the report."); } };
 $("dlGpx").onclick = () => S.result && exportGpx(S.result, exportCtx());
 $("dlCsv").onclick = () => S.result && exportCsv(S.result, exportCtx());
 $("dlGeo").onclick = () => S.result && exportGeoJson(S.result, exportCtx());
@@ -910,5 +1131,10 @@ $("dlGeo").onclick = () => S.result && exportGeoJson(S.result, exportCtx());
   syncFieldToBlocks(); // drawn blocks always define the field (older saves could keep a separate outline)
   renderBlocks();
   if (!$("devSerial").value) $("devSerial").value = store.get("hs.devSerial") || "";
+  const sp = store.get("hs.probes");
+  if (Array.isArray(sp)) S.probes = sp.filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lon)).map((p) => ({ ...p, name: String(p.name || "Probe") }));
+  $("probeIds").value = store.get("hs.probeIds") || "";
+  const am = store.get("hs.appMode");
+  setAppMode(am === "new" || am === "check" ? am : null);
   readDeviceHash();
 })();
