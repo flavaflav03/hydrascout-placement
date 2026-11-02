@@ -297,26 +297,17 @@ $("searchForm").addEventListener("submit", async (e) => {
 const LOGGER_URL = "https://srv2118288.hstgr.cloud"; // HSTI Logger Overview (same VPS as the hosted app)
 const loggerUrl = () => (LOGGER_URL || store.get("hs.loggerUrl") || "").replace(/\/+$/, "");
 $("loggerCfg").hidden = !!loggerUrl();
-// The same lookup serves step 1 of "Install new probes" (one serial: puts the search pin there) and the installed
-// probes of "Check probes already installed" (a list of serials: one probe on the map per device).
+// Device lookup is only for "Check probes already installed" (a new customer has no device yet): a list of serials,
+// one probe on the map per device.
 const DEV = { queue: [], forProbe: false, found: 0, failed: [], total: 0 };
-const devStatus = (msg, err) => setStatus(msg, err, DEV.forProbe ? "probeStatus" : "searchStatus");
+const devStatus = (msg, err) => setStatus(msg, err, "probeStatus");
 function loggerReady() {
   if (LOGGER_URL) return true;
   const u = $("loggerUrl").value.trim() || store.get("hs.loggerUrl") || "";
-  if (!/^https?:\/\/[^\s/]+/.test(u)) { $("loggerCfg").hidden = false; devStatus("Enter the HSTI Logger Overview address first (ask your admin), in step “Find the field”, then try again.", true); return false; }
+  if (!/^https?:\/\/[^\s/]+/.test(u)) { $("loggerCfg").hidden = false; devStatus("Enter the HSTI Logger Overview address first (ask your admin), then try again.", true); return false; }
   store.set("hs.loggerUrl", u.replace(/\/+$/, ""));
   return true;
 }
-$("deviceForm").addEventListener("submit", (e) => {
-  e.preventDefault();
-  DEV.forProbe = false; DEV.queue = [];
-  const serial = $("devSerial").value.replace(/\s+/g, "");
-  if (!/^\d{4,15}$/.test(serial)) { setSearchStatus("Enter the device serial number (digits only), as shown in Device Manager.", true); return; }
-  if (!loggerReady()) return;
-  store.set("hs.devSerial", serial);
-  lookupDevice(serial);
-});
 function lookupDevice(serial) {
   // Hosted on the same server as Logger Overview: read its device list directly with the logger's login cookie.
   if (sameOriginLogger()) { lookupDeviceDirect(serial); return; }
@@ -348,7 +339,7 @@ async function lookupDeviceDirect(serial) {
   } catch (err) {
     if (err.message === "login") {
       window.open(`${loggerUrl()}/login`, "_blank");
-      devStatus(`Log in to HSTI Logger Overview in the tab that just opened, then come back and press ${DEV.forProbe ? "Find" : "Use its GPS"} again.`, true);
+      devStatus(`Log in to HSTI Logger Overview in the tab that just opened, then come back and press Find again.`, true);
     } else devStatus(`Could not look up device ${serial}: ${err.message}`, true);
   }
 }
@@ -364,19 +355,10 @@ function showDevice(d) {
   const lat = +d.lat, lon = +d.lng;
   const bad = d.error ? DEV_ERR[d.error] || d.error
     : d.lat === "" || d.lng === "" || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180 ? "the position received is not valid" : null;
-  if (DEV.forProbe) {
-    if (bad) DEV.failed.push(`${serial} (${bad})`);
-    else { addProbe({ serial, name: `#${serial}`, lat, lon, how: "gps", seen: d.seen || null, product: d.product || null }, { fit: false }); DEV.found++; }
-    nextDevice(); return;
-  }
-  $("devSerial").value = serial;
-  if (bad) {
-    setSearchStatus(d.error === "nogps" ? `Device ${serial} has no GPS position yet in Device Manager.` : d.error === "notfound" ? `Device ${serial} was not found in Device Manager. Check the serial.` : d.error ? `Could not read device ${serial}: ${d.error}` : `Device ${serial}: ${bad}.`, true);
-    return;
-  }
-  const when = d.seen && !Number.isNaN(Date.parse(d.seen)) ? new Date(d.seen).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : null;
-  goTo({ lat, lon, zoom: 17, label: `Device ${serial}` });
-  setSearchStatus(`Device ${serial}${d.product ? ` (${d.product})` : ""}: last GPS position ${lat.toFixed(6)}, ${lon.toFixed(6)}${when ? `, connected ${when}` : ""}. Draw the field around it.`);
+  if (!DEV.forProbe) return; // no lookup running
+  if (bad) DEV.failed.push(`${serial} (${bad})`);
+  else { addProbe({ serial, name: `#${serial}`, lat, lon, how: "gps", seen: d.seen || null, product: d.product || null }, { fit: false }); DEV.found++; }
+  nextDevice();
 }
 // Installed probes: look the serials up one after the other, then frame them all on the map.
 function nextDevice() {
@@ -1130,7 +1112,6 @@ $("dlGeo").onclick = () => S.result && exportGeoJson(S.result, exportCtx());
   syncBlockRows();
   syncFieldToBlocks(); // drawn blocks always define the field (older saves could keep a separate outline)
   renderBlocks();
-  if (!$("devSerial").value) $("devSerial").value = store.get("hs.devSerial") || "";
   const sp = store.get("hs.probes");
   if (Array.isArray(sp)) S.probes = sp.filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lon)).map((p) => ({ ...p, name: String(p.name || "Probe") }));
   $("probeIds").value = store.get("hs.probeIds") || "";
