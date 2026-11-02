@@ -14,7 +14,7 @@ The app opens on one question: **Install new probes** (the steps below) or **Che
 
 **Install new probes**:
 
-1. **Find the field**: search an address or place, coordinates, or a Digital Matter device's last GPS position.
+1. **Find the field**: search an address or place, or coordinates. (A new customer has no device yet, so device IDs are only asked when checking installed probes.)
 2. **Irrigation blocks**: how many irrigation blocks the grower has. HSTI sizes a kit as one probe per block, so the answer gives the number of probes straight away.
 3. **Draw the blocks**: one row per block, each with a name and a **Draw borders** button, or import them (GeoJSON/KML, one polygon per block). The blocks together are the field: crop vigour, soil and the analysis only cover them. Each block gets one probe at its most typical point, away from its border, and a block made of two clearly different parts gets an optional second probe. Without a block count, the whole field is drawn instead and the number of probes follows its size.
 4. **Irrigation equipment (optional)**: drip (emitter and line spacing, flow), micro-sprinkler or sprinkler (head spacing), centre pivot (centre, radius, span length), linear move, furrow/flood.
