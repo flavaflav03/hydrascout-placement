@@ -3,19 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Hydrascout Placement</title>
+<title>HydraScout Placement</title>
+<link rel="icon" type="image/svg+xml" href="assets/hydrascout-pictogram.svg">
+<meta name="theme-color" content="#0380B8">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Asap:wght@400;500;600;700&family=League+Spartan:wght@600;700&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
-<link rel="stylesheet" href="css/app.css?v=23">
+<link rel="stylesheet" href="css/app.css?v=24">
 </head>
 <body>
 <div id="app">
   <aside id="panel" data-mode="">
     <header>
-      <h1>Hydrascout Placement</h1>
-      <p>Find the most representative spots in a field to install Hydrascout soil &amp; temperature sensors.</p>
+      <div class="brand-logo" id="brandLogo" role="img" aria-label="HydraScout, soil moisture management by HSTI"></div>
+      <h1>Placement tool</h1>
+      <p>Find how many HydraScout probes a farm needs and the most representative spot for each one.</p>
     </header>
     <section class="mode-pick" id="modePick" aria-labelledby="modeQ">
       <h2 id="modeQ">What do you want to do?</h2>
@@ -205,7 +208,7 @@
 
     <section class="step" id="roiStep">
       <h2>Return on investment</h2>
-      <p class="hint">A Hydrascout probe typically saves 10–30% of irrigation water, and the pumping hours, electricity or diesel that go with it. Ask the farmer for their own figures: the closer they are, the more convincing the result.</p>
+      <p class="hint">A HydraScout probe typically saves 10–30% of irrigation water, and the pumping hours, electricity or diesel that go with it. Ask the farmer for their own figures: the closer they are, the more convincing the result.</p>
       <h3 class="sub-h">Water</h3>
       <div class="subopts">
         <label for="roiArea">Irrigated area</label><span><input type="number" id="roiArea" min="0" step="0.1"><span class="unit">ha</span></span>
@@ -239,7 +242,7 @@
       <div class="row"><button type="button" class="primary" id="dlReportRoi" data-icon="paper">Open placement report</button></div>
     </section>
 
-    <footer>Data: elevation and relief IGN LiDAR HD / RGE ALTI (France), AWS terrain tiles elsewhere, Copernicus DEM GLO-90 via Open-Meteo as a fallback, Esri hillshade · soil ISRIC SoilGrids 2.0 · NDVI Copernicus Sentinel-2 via Earth Search (AWS) · address search IGN Géoplateforme (Base Adresse Nationale) and OpenStreetMap Nominatim · imagery Esri. Recommendations are a starting point: check each spot on the ground before installing.</footer>
+    <footer><p class="disclaimer">Recommendations are a starting point: check each spot on the ground before installing.</p><details><summary>Data sources</summary><p>Elevation and relief IGN LiDAR HD / RGE ALTI (France), AWS terrain tiles elsewhere, Copernicus DEM GLO-90 via Open-Meteo as a fallback, Esri hillshade · soil ISRIC SoilGrids 2.0 · NDVI Copernicus Sentinel-2 via Earth Search (AWS) · address search IGN Géoplateforme (Base Adresse Nationale) and OpenStreetMap Nominatim · imagery Esri.</p></details></footer>
   </aside>
   <div id="mapwrap">
     <div id="map"></div>
@@ -250,13 +253,15 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.2/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
-<script src="js/util.js?v=23"></script>
-<script src="js/icons.js?v=23"></script>
-<script src="js/sources.js?v=23"></script>
-<script src="js/analysis.js?v=23"></script>
-<script src="js/roi.js?v=23"></script>
-<script src="js/report.js?v=23"></script>
-<script src="js/terrain3d.js?v=23"></script>
-<script src="js/app.js?v=23"></script>
+<script src="js/util.js?v=24"></script>
+<script src="js/brand.js?v=24"></script>
+<script src="js/ui.js?v=24"></script>
+<script src="js/icons.js?v=24"></script>
+<script src="js/sources.js?v=24"></script>
+<script src="js/analysis.js?v=24"></script>
+<script src="js/roi.js?v=24"></script>
+<script src="js/report.js?v=24"></script>
+<script src="js/terrain3d.js?v=24"></script>
+<script src="js/app.js?v=24"></script>
 </body>
 </html>

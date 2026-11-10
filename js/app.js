@@ -1201,7 +1201,7 @@ function view3dOpts() {
   const rings = S.fieldFromBlocks ? drawnBlocks().map((b) => ({ name: `Block ${b.name}`, color: blockColor(b), ring: b.ring }))
     : [{ name: S.isExample ? "Example field" : "Field", color: "#ffffff", ring: S.field }];
   const check = appMode() === "check";
-  const spots = check ? S.probes.map((p, i) => ({ label: String(i + 1), color: "#2f6b45", lat: p.lat, lon: p.lon }))
+  const spots = check ? S.probes.map((p, i) => ({ label: String(i + 1), color: "#0380B8", lat: p.lat, lon: p.lon }))
     : S.result ? S.result.sensors.map((s, i) => ({ label: String(i + 1), color: zoneColor(s.zone), lat: s.lat, lon: s.lon })) : [];
   return { rings, spots, ndvi: S.ndvi && S.ndvi.overlay };
 }
