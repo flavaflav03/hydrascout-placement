@@ -331,11 +331,18 @@ async function lookupDeviceDirect(serial) {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
     const rows = Array.isArray(data) ? data : (data.devices || data.rows || []);
-    return rows.find((row) => row && row.dm && String(row.serial) === serial);
+    // Accept the Device Manager serial, the IMEI, the SIM ICCID or the device name, as Logger Overview does.
+    const norm = (v) => String(v ?? "").replace(/\s+/g, "").toLowerCase();
+    const want = norm(serial), wantNum = /^\d+$/.test(want) ? String(+want) : null;
+    const hit = (row) => [row.serial, row.imei, row.iccid, row.name].some((v) => {
+      const n = norm(v); return n && (n === want || (wantNum && /^\d+$/.test(n) && String(+n) === wantNum));
+    });
+    return rows.find((row) => row && hit(row));
   };
   try {
     const row = (await find(false)) || (await find(true));
     if (!row) { showDevice({ device: serial, error: "notfound" }); return; }
+    if (!row.dm) { showDevice({ device: serial, error: "nodm" }); return; }
     const { lat, lng, lastConnected, product } = row.dm;
     if (typeof lat !== "number" || typeof lng !== "number" || (lat === 0 && lng === 0)) { showDevice({ device: serial, error: "nogps" }); return; }
     showDevice({ device: serial, lat, lng, seen: lastConnected || "", product: product || "" });
@@ -351,9 +358,9 @@ window.addEventListener("message", (e) => {
   if (e.origin !== origin || !e.data || e.data.type !== "hydrascout-device") return;
   showDevice(e.data);
 });
-const DEV_ERR = { nogps: "no GPS position yet", notfound: "not found in Device Manager" };
+const DEV_ERR = { nogps: "no GPS position yet", notfound: "not found in HSTI Logger Overview", nodm: "known only as a SIM card, not in Device Manager" };
 function showDevice(d) {
-  const serial = String(d.device || "").replace(/\D/g, "");
+  const serial = String(d.device || "").replace(/[^A-Za-z0-9_-]/g, "");
   if (!serial) return;
   const lat = +d.lat, lon = +d.lng;
   const bad = d.error ? DEV_ERR[d.error] || d.error
@@ -375,8 +382,8 @@ function nextDevice() {
 $("probeForm").addEventListener("submit", (e) => {
   e.preventDefault();
   const ids = [...new Set($("probeIds").value.split(/[\s,;]+/).filter(Boolean))];
-  const bad = ids.filter((s) => !/^\d{4,15}$/.test(s));
-  if (!ids.length || bad.length) { setStatus(bad.length ? `Not a device ID: ${bad.join(", ")}. Use the serial number (digits only), as shown in Device Manager.` : "Type at least one device ID.", true, "probeStatus"); return; }
+  const bad = ids.filter((s) => !/^[A-Za-z0-9_-]{3,24}$/.test(s));
+  if (!ids.length || bad.length) { setStatus(bad.length ? `Not a device ID: ${bad.join(", ")}. Use the serial number, IMEI or SIM ICCID, as shown in HSTI Logger Overview.` : "Type at least one device ID.", true, "probeStatus"); return; }
   DEV.forProbe = true; DEV.found = 0; DEV.failed = []; DEV.total = ids.length; DEV.queue = ids.slice(1);
   store.set("hs.probeIds", $("probeIds").value);
   if (!loggerReady()) { DEV.forProbe = false; return; }
