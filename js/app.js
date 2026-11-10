@@ -108,14 +108,60 @@ async function loadSoilHere() {
   KEY.hereFor = id; KEY.here = null; KEY.hereErr = null;
   try { const r = await fetchWrb(c[0], c[1]); if (KEY.hereFor !== id) return; KEY.here = r; if (!r.length) KEY.hereErr = "No soil data here (water, town or outside the map)."; }
   catch (err) { if (KEY.hereFor !== id) return; KEY.hereErr = err.message; KEY.hereFor = null; }
+  if ($("crop").value) renderRoots(true); // a shallow soil group changes the root depth notes
   renderKey();
 }
 
+// Lowest and highest ground of the field, or of each drawn block, from the lidar terrain model (the same download the
+// analysis and the 3D view use). Shown in the map key whenever there is a field, so it stays on the map.
+const ELEV = { for: null, rows: null, T: null, err: null };
+function elevRings() {
+  if (!S.field) return [];
+  return S.fieldFromBlocks ? drawnBlocks().map((b) => ({ name: `Block ${b.name}`, color: blockColor(b), ring: b.ring }))
+    : [{ name: S.isExample ? "Example field" : "Field", color: null, ring: S.field }];
+}
+async function loadElev(rings) {
+  const id = JSON.stringify(rings.map((r) => r.ring));
+  if (ELEV.for === id) return;
+  ELEV.for = id; ELEV.rows = null; ELEV.T = null; ELEV.err = null;
+  try {
+    const T = await demForPoints(rings.flatMap((r) => r.ring)), rel = ringRelief(T, rings.map((r) => r.ring));
+    if (ELEV.for !== id) return;
+    ELEV.T = T; ELEV.rows = rel;
+  } catch (err) {
+    if (ELEV.for !== id) return;
+    console.warn("elevation key", err); ELEV.err = "Could not load the terrain model here."; // keep ELEV.for: no retry loop; it tries again when the blocks change
+  }
+  renderKey();
+}
+function elevKey() {
+  const rings = elevRings(); if (!rings.length) return "";
+  loadElev(rings);
+  if (!ELEV.rows) return `<section><h3>Elevation</h3><p class="note">${ELEV.err ? escapeHtml(ELEV.err) : "Loading the lidar terrain model…"}</p></section>`;
+  const dem = ELEV.T.dem, d = dem.res <= 10 ? 1 : 0, ok = ELEV.rows.filter(Boolean);
+  if (!ok.length) return "";
+  const lo = Math.min(...ok.map((r) => r.lo)), hi = Math.max(...ok.map((r) => r.hi)), span = hi - lo || 1;
+  const pos = (v) => `${(((v - lo) / span) * 100).toFixed(1)}%`;
+  // One row per block: its own range, and where that range sits between the lowest and highest point of all blocks.
+  const rows = rings.length > 1 ? `<ul class="elev">${rings.map((r, i) => {
+    const e = ELEV.rows[i];
+    if (!e) return `<li>${swatch(r.color)}<span class="nm">${escapeHtml(r.name)}</span><span class="rng">no data</span></li>`;
+    return `<li>${swatch(r.color)}<span class="nm">${escapeHtml(r.name)}</span><span class="rng">${fmt(e.lo, d)}–${fmt(e.hi, d)} m</span>
+      <span class="track"><span style="left:${pos(e.lo)};width:max(3px, calc(${pos(e.hi)} - ${pos(e.lo)}));background:${r.color}"></span></span></li>`;
+  }).join("")}</ul>` : "";
+  return `<section><h3>Elevation</h3>
+    <div class="elev-mm"><span><small>Lowest</small><b>${fmt(lo, d)} m</b></span><span><small>Highest</small><b>${fmt(hi, d)} m</b></span><span><small>Difference</small><b>${fmt(hi - lo, d)} m</b></span></div>
+    ${rows}
+    <p class="note">${rings.length > 1 ? "Across the drawn blocks. " : ""}${escapeHtml(demLabel(dem))}. Tap the map to read the height at a spot.</p></section>`;
+}
+
 function renderKey() {
-  if (typeof renderRoots === "function" && $("crop").value) renderRoots();
-  const body = soilKey() + ndviKey();
+  const body = elevKey() + soilKey() + ndviKey();
   keyBox.hidden = !body;
-  if (body) keyBox.innerHTML = `<button type="button" class="fold" data-act="fold" aria-expanded="${KEY.open}">Map key${icon(KEY.open ? "chevronDown" : "chevronRight")}</button>${KEY.open ? `<div class="key-body">${body}</div>` : ""}`;
+  // Folded, the header still shows the lowest and highest ground, so the range is always on the map.
+  const ok = ELEV.rows && ELEV.rows.filter(Boolean), d = ELEV.T && ELEV.T.dem.res <= 10 ? 1 : 0;
+  const mm = ok && ok.length ? `<span class="mm">${fmt(Math.min(...ok.map((r) => r.lo)), d)}–${fmt(Math.max(...ok.map((r) => r.hi)), d)} m</span>` : "";
+  if (body) keyBox.innerHTML = `<button type="button" class="fold" data-act="fold" aria-expanded="${KEY.open}"><span>Map key${KEY.open ? "" : mm}</span>${icon(KEY.open ? "chevronDown" : "chevronRight")}</button>${KEY.open ? `<div class="key-body">${body}</div>` : ""}`;
   liftKey();
 }
 // On a narrow map the attribution wraps across the full width: lift the bottom-left controls above it.
@@ -140,6 +186,9 @@ function soilAt(latlng) {
 async function identify(latlng) {
   const nd = S.ndvi && S.ndvi.overlay ? S.ndvi : null;
   const lines = [];
+  const T = ELEV.T, inBox = T && latlng.lat >= T.box[0] && latlng.lat <= T.box[2] && latlng.lng >= T.box[1] && latlng.lng <= T.box[3];
+  const h = inBox ? demSample(T, latlng.lat, latlng.lng) : null;
+  if (h != null) lines.push(`Elevation <b>${fmt(h, T.dem.res <= 10 ? 1 : 0)} m</b>`);
   if (nd) {
     const v = sampleRaster(nd, latlng.lat, latlng.lng, 0);
     lines.push(v == null ? "NDVI: no value here (outside the field or under cloud)" : `${swatch(ndviColour(v))} NDVI <b>${fmt(v, 2)}</b>: ${ndviBand(v)[2].toLowerCase()}`);
@@ -651,11 +700,11 @@ $("rootOut").addEventListener("change", (e) => {
   }
 });
 $("rootOut").addEventListener("click", (e) => { if (e.target.closest('[data-act="probeReset"]')) setProbePick(null); });
-function renderRoots() {
+function renderRoots(fromSoil = false) {
   const c = readCrop(), k = c.crop && CROPS[c.crop] ? CROPS[c.crop].kind : null;
   $("cropAnnual").hidden = k !== "annual"; $("cropPerennial").hidden = k !== "perennial";
   store.set("hs.crop", c);
-  if (c.crop && S.field && !S.isExample) loadSoilHere(); // the soil group can show a layer that stops the roots
+  if (c.crop && S.field && !S.isExample && !fromSoil) loadSoilHere(); // the soil group can show a layer that stops the roots
   const out = $("rootOut"), x = currentRoots();
   out.hidden = !x; if (!x) return;
   const r = x.roots, p = x.probe, pct = (cm) => `${Math.min(100, (cm / Math.max(r.maxCm + 20, 60)) * 100).toFixed(1)}%`;
@@ -769,6 +818,7 @@ $("blockList").addEventListener("input", (e) => {
   const i = e.target.dataset.i; if (i == null) return;
   const b = S.blocks[+i]; b.name = e.target.value.trim() || nextBlockName(); clearResult(); store.set("hs.blocks", S.blocks);
   if (b.ring) blockLayer.getLayers()[drawnBlocks().indexOf(b)].setTooltipContent(escapeHtml(b.name));
+  renderKey();
 });
 $("blockList").addEventListener("click", (e) => {
   if (e.target.dataset.field) { setMode(S.mode === "draw" ? null : "draw"); if (S.mode && window.innerWidth <= 760) $("mapwrap").scrollIntoView({ behavior: "smooth" }); return; }
@@ -965,10 +1015,10 @@ function placeSensor(s, lat, lon) {
 // ---------- return on investment ----------
 // The farmer's own water and pumping figures and HSTI's probe price (entered by hand: it depends on the probe
 // type and the sensors fitted). Area and probe count follow the field and the plan until typed over.
-const ROI_FIELDS = { roiArea: "area", roiWater: "waterPerHa", roiWaterPrice: "waterPrice", roiFlow: "flow", roiKw: "kw", roiKwh: "kwhPrice", roiFuel: "fuelLph", roiFuelPrice: "fuelPrice", roiProbes: "probes", roiPrice: "probePrice", roiInstall: "install", roiSub: "sub" };
+const ROI_FIELDS = { roiArea: "area", roiWater: "waterPerHa", roiWaterPrice: "waterPrice", roiFlow: "flow", roiKw: "kw", roiKwh: "kwhPrice", roiFuel: "fuelLph", roiFuelPrice: "fuelPrice", roiProbes: "probes", roiPrice: "probePrice", roiInstall: "install", roiSub: "sub", roiGrant: "grant", roiTimeWeek: "timeWeek", roiWeeks: "weeks", roiHourly: "hourly", roiFertHa: "fertHa", roiFertRate: "fertRate", roiCropHa: "cropHa", roiYield: "yieldRate", roiLease: "lease", roiMarginHa: "marginHa", roiFungHa: "fungHa", roiFungRate: "fungRate" };
 function readRoi() {
   const v = (id) => { const x = parseFloat($(id).value); return Number.isFinite(x) ? x : null; };
-  const o = { energy: $("roiEnergy").value, rates: [v("roiLo"), v("roiMid"), v("roiHi")] };
+  const o = { energy: $("roiEnergy").value, pay: $("roiPay").value, quota: $("roiQuota").checked, rates: [v("roiLo"), v("roiMid"), v("roiHi")] };
   for (const [id, k] of Object.entries(ROI_FIELDS)) o[k] = v(id);
   return o;
 }
@@ -984,15 +1034,19 @@ function renderRoi() {
   document.querySelectorAll(".roi-el").forEach((el) => { el.hidden = e !== "electric"; });
   document.querySelectorAll(".roi-di").forEach((el) => { el.hidden = e !== "diesel"; });
   document.querySelectorAll(".roi-pump").forEach((el) => { el.hidden = e === "none"; });
+  const lease = $("roiPay").value === "lease";
+  document.querySelectorAll(".roi-buy").forEach((el) => { el.hidden = lease; });
+  document.querySelectorAll(".roi-lease").forEach((el) => { el.hidden = !lease; });
+  document.querySelectorAll(".roi-quota").forEach((el) => { el.hidden = !$("roiQuota").checked; });
   const X = computeRoi(readRoi()), out = $("roiOut");
   if (!X) { out.innerHTML = '<p class="hint">Enter the irrigated area and the water used per year to see the savings.</p>'; return; }
-  const mid = X.scenarios[1];
-  out.innerHTML = `<p class="roi-headline">${X.probes ? `<b>${X.probes} probe${X.probes > 1 ? "s" : ""}</b>: ` : ""}about <b>${eur(mid.saved)} saved a year</b> (${num(mid.m3)} m³ of water${mid.hours ? `, ${num(mid.hours)} pumping hours` : ""})${X.priced ? `, paying back <b>${paybackText(mid.payback, true)}</b>` : ""}.</p>
-    <p class="hint">${escapeHtml(roiBasis(X))} ${escapeHtml(roiCostText(X))}</p>${roiTable(X)}`;
+  out.innerHTML = roiSummaryHtml(X) + `<p class="hint">${escapeHtml(roiBasis(X))} ${escapeHtml(roiCostText(X))}</p>
+    <h3 class="sub-h">Each year, three cases</h3><div class="roi-scroll">${roiTable(X)}</div>
+    <h3 class="sub-h">Over ${ROI_YEARS} years, expected case</h3><div class="roi-scroll">${roiYearsCompact(X)}</div>`;
 }
 document.getElementById("roiStep").addEventListener("input", (e) => {
   if (e.target.id === "roiArea" || e.target.id === "roiProbes") e.target.dataset.typed = e.target.value === "" ? "" : "1";
-  const saved = { energy: $("roiEnergy").value };
+  const saved = { energy: $("roiEnergy").value, pay: $("roiPay").value, quota: $("roiQuota").checked };
   for (const id of [...Object.keys(ROI_FIELDS), "roiLo", "roiMid", "roiHi"]) saved[id] = $(id).value;
   saved.typed = ["roiArea", "roiProbes"].filter((id) => $(id).dataset.typed);
   store.set("hs.roi", saved);
@@ -1181,6 +1235,7 @@ $("dlGeo").onclick = () => S.result && exportGeoJson(S.result, exportCtx());
   const roi = store.get("hs.roi");
   if (roi) {
     $("roiEnergy").value = roi.energy || "electric";
+    $("roiPay").value = roi.pay || "buy"; $("roiQuota").checked = !!roi.quota;
     for (const id of [...Object.keys(ROI_FIELDS), "roiLo", "roiMid", "roiHi"]) if (roi[id] != null && roi[id] !== "") $(id).value = roi[id];
     for (const id of roi.typed || []) $(id).dataset.typed = "1";
   }
