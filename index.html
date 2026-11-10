@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
-<link rel="stylesheet" href="css/app.css?v=20">
+<link rel="stylesheet" href="css/app.css?v=21">
 </head>
 <body>
 <div id="app">
@@ -75,10 +75,11 @@
       <ul class="block-list" id="blockList"></ul>
       <div class="row">
         <label class="btn file" id="blockFileBtn" data-icon="folder"><span class="lbl">Import blocks</span><input type="file" id="blockFile" accept=".geojson,.json,.kml"></label>
+        <button type="button" id="view3d" data-icon="cube" disabled>3D view</button>
       </div>
       <input type="text" id="fieldName" placeholder="Farm or field name (optional, used in the report)" autocomplete="off">
       <p class="field-info" id="fieldInfo">No field yet.</p>
-      <p class="hint" id="drawHint">Press <b>Draw borders</b> on a block, tap its corners on the map, then Finish. The blocks together are the field: crop vigour, soil and the probe spots all use them. You can also import them from a GeoJSON or KML file (one polygon per block, e.g. from your farm software or Google Earth).</p>
+      <p class="hint" id="drawHint">Press <b>Draw borders</b> on a block, tap its corners on the map, then Finish. <b>3D view</b> shows the blocks on the lidar terrain model, to spot slopes, hollows and rises. The blocks together are the field: crop vigour, soil and the probe spots all use them. You can also import them from a GeoJSON or KML file (one polygon per block, e.g. from your farm software or Google Earth).</p>
     </section>
 
     <section class="step">
@@ -182,6 +183,7 @@
         <button type="button" id="dlCsv" data-icon="arrowDownBox">CSV</button>
         <button type="button" id="dlGeo" data-icon="arrowDownBox">GeoJSON</button>
       </div>
+      <button type="button" id="view3dRes" data-icon="cube">See the spots in 3D</button>
       <button type="button" id="toRoi" data-icon="piggyBank">See the return on investment</button>
       <ul class="notes" id="notes"></ul>
     </section>
@@ -196,6 +198,7 @@
       <div class="row">
         <button type="button" class="primary" id="dlCheckReport" data-icon="paper">Open check report</button>
         <button type="button" id="dlCheckCsv" data-icon="arrowDownBox">CSV</button>
+        <button type="button" id="view3dChk" data-icon="cube">3D view</button>
       </div>
       <ul class="notes" id="checkNotes"></ul>
     </section>
@@ -236,7 +239,7 @@
       <div class="row"><button type="button" class="primary" id="dlReportRoi" data-icon="paper">Open placement report</button></div>
     </section>
 
-    <footer>Data: elevation Copernicus DEM GLO-90 via Open-Meteo · soil ISRIC SoilGrids 2.0 · NDVI Copernicus Sentinel-2 via Earth Search (AWS) · address search IGN Géoplateforme (Base Adresse Nationale) and OpenStreetMap Nominatim · imagery Esri. Recommendations are a starting point: check each spot on the ground before installing.</footer>
+    <footer>Data: elevation Copernicus DEM GLO-90 via Open-Meteo · relief and 3D terrain IGN LiDAR HD / RGE ALTI (France), AWS terrain tiles and Esri hillshade elsewhere · soil ISRIC SoilGrids 2.0 · NDVI Copernicus Sentinel-2 via Earth Search (AWS) · address search IGN Géoplateforme (Base Adresse Nationale) and OpenStreetMap Nominatim · imagery Esri. Recommendations are a starting point: check each spot on the ground before installing.</footer>
   </aside>
   <div id="mapwrap">
     <div id="map"></div>
@@ -247,12 +250,13 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.2/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
-<script src="js/util.js?v=20"></script>
-<script src="js/icons.js?v=20"></script>
-<script src="js/sources.js?v=20"></script>
-<script src="js/analysis.js?v=20"></script>
-<script src="js/roi.js?v=20"></script>
-<script src="js/report.js?v=20"></script>
-<script src="js/app.js?v=20"></script>
+<script src="js/util.js?v=21"></script>
+<script src="js/icons.js?v=21"></script>
+<script src="js/sources.js?v=21"></script>
+<script src="js/analysis.js?v=21"></script>
+<script src="js/roi.js?v=21"></script>
+<script src="js/report.js?v=21"></script>
+<script src="js/terrain3d.js?v=21"></script>
+<script src="js/app.js?v=21"></script>
 </body>
 </html>

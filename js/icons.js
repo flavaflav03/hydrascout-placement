@@ -1,6 +1,8 @@
 // Icons from Papicons by Association Papillon (MIT licence, https://github.com/PapillonApp/papicons),
 // @getpapillon/papicons 0.2.3. Only the icons the app uses are copied here, so the page needs no build step.
 const PAPICONS = {
+  // cube: drawn for the 3D view in the same rounded, filled style (not from Papicons).
+  cube: "<path d=\"M11.1 2.4a2 2 0 0 1 1.8 0l6.9 3.5c.5.25.5.95 0 1.2l-7.1 3.6a1.5 1.5 0 0 1-1.4 0L4.2 7.1c-.5-.25-.5-.95 0-1.2z\"/><path d=\"M3.4 9.2c0-.6.6-.95 1.1-.7l6.4 3.3c.4.2.6.6.6 1v7.6c0 .6-.6.95-1.1.7l-5.6-2.9A2.4 2.4 0 0 1 3.4 16.1zM20.6 9.2c0-.6-.6-.95-1.1-.7l-6.4 3.3c-.4.2-.6.6-.6 1v7.6c0 .6.6.95 1.1.7l5.6-2.9a2.4 2.4 0 0 0 1.4-2.1z\"/>",
   search: "<path fill-rule=\"evenodd\" d=\"M10 3a7 7 0 0 1 5.573 11.232l4.078 3.548c1.28 1.114.492 3.22-1.205 3.22a1.84 1.84 0 0 1-1.43-.685l-3.453-4.29A7 7 0 1 1 10 3m0 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8\"/>",
   mapPin: "<path fill-rule=\"evenodd\" d=\"M12 3c4.418 0 8 3 8 8.389 0 4.159-4.765 8.219-6.94 9.855a1.75 1.75 0 0 1-2.12 0C8.765 19.608 4 15.548 4 11.39 4 5.999 7.582 3 12 3m0 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6\"/>",
   chevronLeft: "<path d=\"M12.804 4.44a1.5 1.5 0 1 1 2.12 2.12l-5.303 5.304 5.304 5.303a1.5 1.5 0 0 1-2.121 2.121l-6.365-6.363a1.5 1.5 0 0 1 0-2.122z\"/>",
