@@ -23,7 +23,8 @@ The app opens on one question: **Install new probes** (the steps below) or **Che
 7. **Map key**: the soil map and NDVI each get a legend on the map. The soil key lists the most likely soil groups at the field (SoilGrids classification) with a plain description, and NDVI values are grouped into bare soil, sparse, moderate, dense and very dense. Tap the map to read the soil type, texture and NDVI at a spot (the soil shows even with the soil map off).
 8. **Adjusting spots**: drag a numbered pin, or press **Set by hand** and tap the map, to put a sensor where the customer wants it. A short "why here" note can be added; it goes into the report and the exports. Its notes are rewritten for the new point, with warnings when it leaves its zone, comes too close to the field edge or its block's border or sits on a pivot track; "Back to recommended spot" restores it.
 9. **Return on investment** (its own tab): the farmer's own figures (irrigated area, water used per year, price of 1 m³, pump flow and power with the price of 1 kWh, or diesel use and price per litre) and HSTI's quote (price per probe, installation, yearly subscription, entered by hand) give the water, pumping hours and money saved per year, the payback in irrigation seasons and the 3-year net gain, for a low / expected / high water saving (10 / 20 / 30% by default). It goes into the report.
-10. **Exports**: a printable placement report (reason for each spot, installation tip, blank fields for install date, depth and serial number), plus GPX, CSV and GeoJSON.
+10. **Lidar relief and 3D view**: the map's layer menu has a *Relief (lidar)* layer (IGN LiDAR HD hillshade in France, Esri hillshade elsewhere) shaded into the satellite image. **3D view** (under the blocks, the results and the probe check) shows the drawn blocks on a terrain model with the satellite image, NDVI or height colours draped on it, the probe spots as numbered pins, a relief exaggeration (×1 to ×10) and each block's lowest and highest point. The terrain is IGN LiDAR HD, then IGN RGE ALTI (France, about 1 m), then the AWS terrain tiles (worldwide, about 30 m). three.js loads only when the 3D view is opened.
+11. **Exports**: a printable placement report (reason for each spot, installation tip, blank fields for install date, depth and serial number), plus GPX, CSV and GeoJSON.
 
 ## Data sources
 
@@ -33,6 +34,7 @@ The app opens on one question: **Install new probes** (the steps below) or **Che
 | Soil texture (analysis) | [ISRIC SoilGrids 2.0](https://www.isric.org/explore/soilgrids), 0–60 cm | 250 m |
 | Soil maps (display) | ISRIC SoilGrids WMS: WRB soil type, clay 15–30 cm; link to the INRAE / GIS Sol *carte des sols* on cartes.gouv.fr | 250 m |
 | NDVI | Copernicus Sentinel-2 L2A COGs via [Earth Search](https://element84.com/earth-search/) (AWS open data) | 10 m |
+| Relief and 3D terrain | IGN Géoplateforme LiDAR HD / RGE ALTI (France, WMS-R); AWS terrain tiles and Esri World Hillshade elsewhere | 1 m (France), ~30 m |
 | Basemap | Esri World Imagery, OpenStreetMap | |
 
 ## Code layout
@@ -45,6 +47,7 @@ The app opens on one question: **Install new probes** (the steps below) or **Che
 - `js/analysis.js`: grid, terrain, zoning, spot selection and explanations
 - `js/roi.js`: return on investment (water and pumping savings, payback)
 - `js/report.js`: report and GPX/CSV/GeoJSON exports
+- `js/terrain3d.js`: lidar relief layer, terrain loading and the 3D view
 - `js/app.js`: map and UI wiring
 
-Libraries load from CDNs: Leaflet 1.9.4, proj4 2.9.2, geotiff.js 2.1.3.
+Libraries load from CDNs: Leaflet 1.9.4, proj4 2.9.2, geotiff.js 2.1.3, and three.js r128 (only when the 3D view opens).

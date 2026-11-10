@@ -160,7 +160,8 @@ async function identify(latlng) {
 }
 
 const ndviLayer = L.layerGroup().addTo(map);
-L.control.layers({ Satellite: sat, Map: osm }, { "Place names": places, "Soil type (WRB)": soilLayers.wrb, "Clay content": soilLayers.clay, "NDVI image": ndviLayer }, { position: "topright" }).addTo(map);
+const reliefLayer = makeReliefLayer(map);
+L.control.layers({ Satellite: sat, Map: osm }, { "Place names": places, "Relief (lidar)": reliefLayer, "Soil type (WRB)": soilLayers.wrb, "Clay content": soilLayers.clay, "NDVI image": ndviLayer }, { position: "topright" }).addTo(map);
 L.control.scale({ imperial: false }).addTo(map);
 map.on("overlayadd overlayremove", () => { $("soilMap").value = soilOn() || "off"; renderKey(); });
 map.on("moveend", () => { if (!S.field && soilOn() === "wrb") renderKey(); });
@@ -190,7 +191,7 @@ function setField(latlngs, { fit = true, example = false, fromBlocks = false, ke
     if (S.ndvi && S.ndvi.source === "sentinel") clearNdvi("The blocks changed. Search satellite images again so they cover the new blocks.");
     else if (S.ndvi) { S.ndvi.overlay = null; showNdvi(S.ndvi); }
   } else if (S.ndvi) { S.ndvi.overlay = null; showNdvi(S.ndvi); }
-  $("sceneBtn").disabled = !latlngs;
+  $("sceneBtn").disabled = !latlngs; $("view3d").disabled = !latlngs;
   if (!latlngs) { $("fieldInfo").textContent = "No field yet."; $("analyzeBtn").disabled = true; return; }
   // Blocks are drawn on their own, so the outline around them is not drawn again.
   const poly = L.polygon(latlngs, { color: "#ffffff", weight: fromBlocks ? 0 : 2.5, fill: false, dashArray: example ? "6 6" : null, interactive: false });
@@ -1122,3 +1123,19 @@ $("dlGeo").onclick = () => S.result && exportGeoJson(S.result, exportCtx());
   setAppMode(am === "new" || am === "check" ? am : null);
   readDeviceHash();
 })();
+
+// ---------- 3D view ----------
+// The drawn blocks (or the whole field) on a lidar terrain model, with the probe spots when there are some.
+function open3d() {
+  if (!S.field) return;
+  const rings = S.fieldFromBlocks ? drawnBlocks().map((b) => ({ name: `Block ${b.name}`, color: blockColor(b), ring: b.ring }))
+    : [{ name: S.isExample ? "Example field" : "Field", color: "#ffffff", ring: S.field }];
+  const check = appMode() === "check";
+  const spots = check ? S.probes.map((p, i) => ({ label: String(i + 1), color: "#2f6b45", lat: p.lat, lon: p.lon }))
+    : S.result ? S.result.sensors.map((s, i) => ({ label: String(i + 1), color: zoneColor(s.zone), lat: s.lat, lon: s.lon })) : [];
+  if (window.innerWidth <= 760) $("mapwrap").scrollIntoView({ behavior: "smooth" });
+  View3D.open({ rings, spots, ndvi: S.ndvi && S.ndvi.overlay });
+}
+$("view3d").addEventListener("click", open3d);
+$("view3dRes").addEventListener("click", open3d);
+$("view3dChk").addEventListener("click", open3d);

@@ -265,3 +265,31 @@ button *, .btn > svg, .btn > span { pointer-events: none; } /* clicks land on th
 .suggest { margin: 0; font-weight: 600; font-size: 14px; }
 .missing { margin: 0; padding-left: 18px; font-size: 14px; display: flex; flex-direction: column; gap: 6px; }
 .sensor .reason { width: 100%; font-size: 14px; }
+/* 3D view of the blocks, over the map */
+.view3d { position: absolute; inset: 0; z-index: 1500; display: flex; flex-direction: column; background: var(--panel); }
+.v3-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--line);
+  padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
+.v3-title { font: 700 17px/1 var(--font-head); margin-right: auto; }
+.v3-bar button { padding: 7px 10px; font-size: 13px; }
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; margin-left: -1px; }
+.seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+.seg button:last-child { border-radius: 0 6px 6px 0; }
+.v3-ex { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); }
+.v3-ex select { padding: 5px 6px; }
+.v3-stage { position: relative; flex: 1 1 auto; min-height: 0; touch-action: none; cursor: grab; background: #dfe6e0; }
+.v3-stage:active { cursor: grabbing; }
+.v3-stage canvas { display: block; width: 100%; height: 100%; }
+.v3-msg { position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); max-width: calc(100% - 32px); }
+.v3-here, .v3-scale { position: absolute; left: 10px; bottom: 10px; background: rgba(255,255,255,.88); color: #1d2a22; border-radius: 6px;
+  padding: 4px 8px; font: 12px/1.3 var(--font-data); pointer-events: none; }
+.v3-here:empty { display: none; }
+.v3-scale { left: auto; right: 10px; display: flex; align-items: center; gap: 6px; }
+.v3-scale[hidden] { display: none; }
+.v3-scale i { width: 90px; height: 8px; border-radius: 3px; }
+.v3-foot { padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.v3-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.v3-stats span { display: inline-flex; align-items: center; gap: 6px; }
+.v3-stats i { width: 10px; height: 10px; border-radius: 2px; border: 1px solid var(--line); }
+.v3-foot .hint { margin: 0; }
+@media (max-width: 760px) { .v3-title { width: 100%; } .v3-bar { gap: 6px; } .v3-foot .hint { font-size: 12px; } .v3-here { bottom: auto; top: 10px; } }
