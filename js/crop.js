@@ -105,7 +105,7 @@ function computeRoots(inp) {
   const nowM = stage ? ZR_SOWING + (maxM - ZR_SOWING) * clamp01(f) : null;
   const top = (inp.soils || [])[0];
   if (top && SHALLOW_SOILS[top.name]) notes.push(`${SHALLOW_SOILS[top.name]}: roots may stop above ${round5(maxM * 100)} cm. Check the depth with an auger before choosing the probe length.`);
-  if (stage === "after") notes.push("The crop looks harvested on this date: the probe is sized for next season's deepest roots.");
+  if (stage === "after") notes.push("The crop looks harvested on this date: the probe is sized for next season's main root zone.");
   return {
     crop: c.name, kind: c.kind, stage, stageLabel: stage ? STAGES[stage] : null, src,
     nowCm: nowM != null ? Math.max(10, round5(nowM * 100)) : null,
@@ -147,20 +147,21 @@ function makeProbe(len, depths, extra = {}) {
     ref: `HydraScout® ${len} cm with ${depths.length} sensor${depths.length > 1 ? "s" : ""}` };
 }
 
-// Shortest probe whose bottom sensor sits just below the deepest roots, so it sees water draining past them.
+// The probe is sized to the main root zone (the top half of the roots, where about 70% of the water is taken),
+// not to the deepest roots: the sensors follow the zone irrigation manages, and the bottom one sits about 20 cm
+// below it to show water draining past the roots. HSTI's own practice (60 or 80 cm for field crops) matches this.
+const BELOW_CM = 20;
 function recommendProbe(roots, cropKey) {
   if (!roots) return null;
-  const target = roots.maxCm + 10, r = RANGE[CROP_FAMILY[cropKey]], notes = [];
+  const target = roots.activeCm + BELOW_CM, r = RANGE[CROP_FAMILY[cropKey]], notes = [];
   let len = r.lengths.find((l) => l >= target);
   if (len == null) {
     len = r.lengths[r.lengths.length - 1];
-    if (r.usual) notes.push(`HSTI usually fits ${r.lengths.join(" or ")} cm probes in ${r.label.toLowerCase()}: the ${len} cm probe ${len >= roots.activeCm ? `covers the main root zone (top ${roots.activeCm} cm), where most of the water is taken` : `covers the top ${len} cm of the ${roots.activeCm} cm where most of the water is taken`}.`);
-    else notes.push(len >= roots.maxCm
-      ? `The longest ${r.label.toLowerCase()} probe (${len} cm) reaches the bottom of the roots, but no sensor sits below them to see drainage.`
-      : len >= roots.activeCm
-      ? `The deepest roots (${roots.maxCm} cm) go past the longest ${r.label.toLowerCase()} probe (${len} cm); it still covers the top ${roots.activeCm} cm where most of the water is taken.`
-      : `The longest ${r.label.toLowerCase()} probe (${len} cm) does not reach the main root zone (${roots.activeCm} cm). Check with HSTI.`);
+    notes.push(len > roots.activeCm
+      ? `The longest ${r.label.toLowerCase()} probe (${len} cm) covers the main root zone (top ${roots.activeCm} cm), with less room below it to see drainage.`
+      : `The longest ${r.label.toLowerCase()} probe (${len} cm) stops within the main root zone (top ${roots.activeCm} cm).`);
   }
+  if (r.usual && len >= target) notes.push(`HSTI usually fits ${r.lengths.join(" or ")} cm probes in ${r.label.toLowerCase()}.`);
   return makeProbe(len, sensorDepths(len, r.sensors) || [len], { target, family: r.label, lengths: r.lengths, sensors: r.sensors, notes });
 }
 
@@ -169,6 +170,6 @@ function rootsSummary(r, rec) {
   const lines = [];
   if (r.nowCm != null) lines.push(`Roots now: about ${r.nowCm} cm (${r.stageLabel}, from ${r.src}).`);
   lines.push(`Deepest effective roots${r.kind === "annual" ? " this season" : ""}: about ${r.maxCm} cm (FAO-56 gives ${r.rangeCm[0]}–${r.rangeCm[1]} cm for ${r.crop.toLowerCase()}; ${r.lowEnd ? "low end used for an irrigated field" : "middle used for a rainfed field"}). About 70% of the water comes from the top ${r.activeCm} cm.`);
-  if (rec) lines.push(`${rec.custom ? "Chosen probe" : "Suggested probe"}: ${rec.code}, ${rec.ref}, at ${rec.depthsCm.join(", ")} cm (each measures moisture and temperature).${rec.lengthCm > r.maxCm ? " The bottom sensor sits just below the roots to see water draining past them." : ""}`);
+  if (rec) lines.push(`${rec.custom ? "Chosen probe" : "Suggested probe"}: ${rec.code}, ${rec.ref}, at ${rec.depthsCm.join(", ")} cm (each measures moisture and temperature).${!rec.custom ? ` It is sized to the main root zone (top ${r.activeCm} cm), not to the deepest roots: the sensors follow the soil that irrigation manages${rec.lengthCm > r.activeCm ? ", and the bottom one sits below it to show water draining past the roots" : ""}.` : ""}`);
   return lines.concat(r.notes, rec && !rec.custom ? rec.notes : []);
 }
