@@ -1366,6 +1366,7 @@ $("toRoi").addEventListener("click", () => { showTab("roi"); $("panel").scrollTo
 
 // ---------- exports ----------
 const exportCtx = () => ({ roots: currentRoots(), field: S.field, fieldName: $("fieldName").value.trim(), askedBlocks: askedBlocks(), roi: computeRoi(readRoi()), layout: layoutPlan(), section: sectionPlan(),
+  ndvi: S.ndvi && S.ndvi.overlay ? { ...S.ndvi.overlay, label: S.ndvi.label, scale: ndviScale() } : null,
   snapshot: () => View3D.snapshot(view3dOpts()) });
 $("dlReport").onclick = () => S.result && openReport(S.result, exportCtx());
 $("dlReportRoi").onclick = () => { if (S.check) openReport(S.result, checkCtx()); else if (S.result) openReport(S.result, exportCtx()); else { showTab("place"); setStatus("Find the sensor spots (or check your probes) first, then open the report."); } };
