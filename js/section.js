@@ -11,11 +11,12 @@ const SECTION_COLORS = { soil: "#c9ab86", soilDeep: "#a88762", roots: "#7cb342",
 
 // Wetted bulb under an emitter by soil weight: in sand water goes mostly down (narrow, deep); in loam and clay
 // it spreads sideways too (onion shape), widest in clay. rx = half-width (m), depth (cm), belly = depth share
-// where the bulb is widest, neck = half-width at the surface as a share of rx. Typical shapes, not a model.
+// where the bulb is widest, neck = half-width at the surface as a share of rx. Typical shapes for a 2–4 L/h
+// emitter after a normal irrigation, not a model. In clay the water spreads near the surface first (wide, shallow).
 const SOIL_BULB = {
-  light: { name: "light, sandy", rx: 0.17, depth: 60, belly: 0.6, neck: 0.55 },
-  medium: { name: "medium, loamy", rx: 0.3, depth: 45, belly: 0.42, neck: 0.32 },
-  heavy: { name: "heavy, clayey", rx: 0.4, depth: 35, belly: 0.36, neck: 0.25 },
+  light: { name: "light, sandy", rx: 0.2, depth: 75, belly: 0.5, neck: 0.45 },
+  medium: { name: "medium, loamy", rx: 0.35, depth: 60, belly: 0.38, neck: 0.6 },
+  heavy: { name: "heavy, clayey", rx: 0.45, depth: 50, belly: 0.3, neck: 0.75 },
 };
 const LIGHT_SOILS = ["sand", "loamy sand", "sandy loam"], HEAVY_SOILS = ["clay", "silty clay", "sandy clay", "clay loam", "silty clay loam"];
 // tex: { sand, silt, clay } in % (SoilGrids 0–60 cm), or null.
@@ -25,17 +26,13 @@ function soilWeight(tex) {
   return { cls: LIGHT_SOILS.includes(t) ? "light" : HEAVY_SOILS.includes(t) ? "heavy" : "medium", texture: t, clay: tex.clay, sand: tex.sand };
 }
 
-// Where a probe goes under drip: never under the emitter (wettest), never at the driest point, but a quarter of
-// the way from the first to the second. When the bulbs stay apart along the line, the driest point is halfway
-// between two emitters; when they join into a wet strip, it is halfway between two lines.
+// Where a probe goes under drip: never under the emitter (wettest), never at the driest point, which is halfway
+// between two drip lines, but a quarter of the way from the first to the second: in front of an emitter, an
+// eighth of the line spacing out from the line (Flavien, HSTI).
 function dripProbeSpot(emitterCm, lineCm, cls = "medium") {
-  const e = emitterCm || 30, l = lineCm || 150, bulb = 2 * SOIL_BULB[cls].rx * 100;
-  if (e > bulb) {
-    const d = Math.round(e / 8);
-    return { along: d, side: 0, strip: false, text: `On the drip line, about ${d} cm from an emitter: a quarter of the way from the wet spot under the emitter to the driest point, halfway to the next emitter (${Math.round(e / 2)} cm). Never right under the emitter.` };
-  }
-  const d = Math.round(l / 8);
-  return { along: 0, side: d, strip: true, text: `Next to an emitter, about ${d} cm to the side of the drip line: the bulbs join into a wet strip along the line, so the driest point is halfway between two lines (${Math.round(l / 2)} cm). Never right under the emitter.` };
+  const l = lineCm || 150, d = Math.round(l / 8), bulb = SOIL_BULB[cls].rx * 100;
+  const inBulb = d <= bulb ? "" : ` That is just outside a typical wet bulb in this soil, so check after the first irrigation that the top sensors react.`;
+  return { along: 0, side: d, strip: true, text: `In front of an emitter, about ${d} cm to the side of the drip line: a quarter of the way from the wettest point (under the emitter) to the driest point, halfway between two lines (${Math.round(l / 2)} cm). Never right under the emitter, never in the middle between the lines.${inBulb}` };
 }
 
 // x: { roots, probe, cropKey } from the crop step (or null), irr: readIrrigation() output, tex: soil texture.
@@ -91,7 +88,7 @@ function sectionRoots(fam, cx, gy, hw, dp, seed = 1, light = false) {
       out.push(`<path d="M${a0[0].toFixed(1)},${a0[1].toFixed(1)} Q${mx.toFixed(1)},${my.toFixed(1)} ${a1[0].toFixed(1)},${a1[1].toFixed(1)}" stroke-width="${wi.toFixed(2)}"/>`);
     }
     if (lvl <= 0) return;
-    const nb = lvl >= 2 ? 3 : 2;
+    const nb = lvl >= 2 ? 2 : 1;
     for (let b = 0; b < nb; b++) {
       const k = 1 + Math.floor(rnd() * (n - 1)), side = rnd() < 0.5 ? -1 : 1;
       grow(pts[k][0], pts[k][1], ang + side * (0.5 + rnd() * 0.7), len * (0.35 + rnd() * 0.25), w * 0.5, lvl - 1);
@@ -100,12 +97,12 @@ function sectionRoots(fam, cx, gy, hw, dp, seed = 1, light = false) {
   const lvl = light ? 1 : 2;
   if (woody) {
     grow(0, 0, 0, 1.0, base, lvl);
-    [-1.25, -0.7, 0.7, 1.25].forEach((a) => grow(0, 0.02, a, 0.75 + rnd() * 0.2, base * 0.7, lvl));
+    [-1.0, 1.0].forEach((a) => grow(0, 0.03, a, 0.7 + rnd() * 0.2, base * 0.7, 1));
   } else {
-    const k = light ? 5 : 7;
-    for (let i = 0; i < k; i++) grow(0, 0, -1.15 + (2.3 * i) / (k - 1) + (rnd() - 0.5) * 0.15, 0.7 + rnd() * 0.3, base, lvl);
+    const k = light ? 3 : 4;
+    for (let i = 0; i < k; i++) grow(0, 0, -0.9 + (1.8 * i) / (k - 1) + (rnd() - 0.5) * 0.15, 0.75 + rnd() * 0.25, base, 1);
   }
-  return `<g stroke="${C.root}" fill="none" stroke-linecap="round" opacity=".85">${out.join("")}</g>`;
+  return `<g stroke="${C.root}" fill="none" stroke-linecap="round" opacity=".75">${out.join("")}</g>`;
 }
 
 // Wetted bulb (onion shape) under a point source at (cx, gy): rx and depth in px.
@@ -130,14 +127,18 @@ function sectionPanel(D, { W = 760, top = 0 } = {}) {
   for (let cm = 0; cm <= maxCm; cm += maxCm > 120 ? 20 : 10) out.push(`<line x1="${L - 5}" y1="${Z(cm)}" x2="${L}" y2="${Z(cm)}" stroke="#5c6b61"/><text x="${L - 8}" y="${Z(cm) + 4}" font-size="11" text-anchor="end" fill="#5c6b61">${cm}</text>`);
   out.push(`<text x="12" y="${gy + SOIL / 2}" font-size="11" fill="#5c6b61" transform="rotate(-90 12 ${gy + SOIL / 2})" text-anchor="middle">Depth (cm)</text>`);
   // Plant positions: along the line (drip) or the rows across.
-  if (drip) { const step = D.fam === "tree" ? span : D.fam === "vine" ? Math.max(1, span / 2) : Math.max(0.2, span / 5); for (let m = step / 2; m < span - 1e-6; m += step) plants.push(m); }
+  if (drip) { const step = D.fam === "tree" ? span : D.fam === "vine" ? Math.max(1, span / 2) : Math.max(0.2, span / 4); for (let m = step / 2; m < span - 1e-6; m += step) plants.push(m); }
   else for (let m = D.row / 2; m < span; m += D.row) plants.push(m);
   // Emitters along the line; the probe sits by the middle one.
   const ems = []; if (drip) for (let m = D.emitter / 2; m < span; m += D.emitter) ems.push(m);
   const e0 = drip ? ems[Math.floor((ems.length - 1) / 2)] : null;
   // Wetted soil (typical shapes from the soil weight).
   const bulb = (m, opa = 0.32) => wet.push(`<path d="${bulbPath(X(m), gy, B.rx * pxm, Z(B.depth) - gy, B)}" fill="${C.wet}" fill-opacity="${opa}" stroke="${C.wetLine}" stroke-width="1.2" stroke-dasharray="5 3"/>`);
-  if (drip) ems.forEach((m) => bulb(m, 0.26));
+  // Drip: neighbouring bulbs that touch merge into one wet strip with a scalloped bottom (one outline, even colour).
+  if (drip) {
+    const ds = ems.map((m) => bulbPath(X(m), gy, B.rx * pxm, Z(B.depth) - gy, B));
+    wet.push(`<g opacity=".34">${ds.map((d) => `<path d="${d}" fill="none" stroke="${C.wetLine}" stroke-width="3"/>`).join("")}${ds.map((d) => `<path d="${d}" fill="${C.wet}"/>`).join("")}</g>`);
+  }
   else if (D.kind === "furrow") plants.slice(0, -1).forEach((m) => bulb(m + D.row / 2));
   else if (D.kind === "micro") { const hs = Math.max(D.irr.spacing || 6, D.row); for (let m = D.row; m < span; m += hs) wet.push(`<path d="${bulbPath(X(m), gy, Math.min(1.5 * pxm, 80), Z(B.depth * 0.9) - gy, { ...B, neck: 0.85 })}" fill="${C.wet}" fill-opacity=".3" stroke="${C.wetLine}" stroke-width="1.2" stroke-dasharray="5 3"/>`); }
   else if (D.kind !== "none") { const d = D.soil.cls === "light" ? 45 : D.soil.cls === "heavy" ? 25 : 35; wet.push(`<rect x="${L}" y="${gy}" width="${PR - L}" height="${Z(d) - gy}" fill="${C.wet}" fill-opacity=".28"/><line x1="${L}" y1="${Z(d)}" x2="${PR}" y2="${Z(d)}" stroke="${C.wetLine}" stroke-width="1.2" stroke-dasharray="5 3"/>`); }
@@ -189,7 +190,7 @@ function sectionPanel(D, { W = 760, top = 0 } = {}) {
     out.push(`<g${side ? ' opacity=".92"' : ""}><rect x="${px - 5}" y="${gy - 14}" width="10" height="14" rx="2" fill="${C.probe}"/><rect x="${px - 3}" y="${gy}" width="6" height="${Z(p.lengthCm) - gy}" fill="${C.probe}"${side ? ` stroke="#fff" stroke-dasharray="3 2"` : ""}/></g>`);
     p.depthsCm.forEach((d) => out.push(`<rect x="${px - 5}" y="${Z(d) - 3}" width="10" height="6" rx="1.5" fill="${C.sensor}"/><text x="${px + 9}" y="${Z(d) + 4}" font-size="10.5" fill="#1d2a22" stroke="#fff" stroke-width="3" paint-order="stroke">${d}</text>`));
     out.push(`<text x="${px}" y="${gy - 32}" font-size="11.5" font-weight="700" text-anchor="middle" fill="#1d2a22" stroke="#fff" stroke-width="3" paint-order="stroke">${escapeHtml(p.code)}</text>`);
-    if (drip) out.push(`<text x="${px}" y="${Z(p.lengthCm) + 16}" font-size="11" text-anchor="middle" fill="#1d2a22" stroke="#fff" stroke-width="3" paint-order="stroke">${side ? `${D.spot.side} cm beside the line` : `${D.spot.along} cm from the emitter`}</text>`);
+    if (drip) out.push(`<text x="${px}" y="${Z(p.lengthCm) + 16}" font-size="11" text-anchor="middle" fill="#1d2a22" stroke="#fff" stroke-width="3" paint-order="stroke">${side ? `${D.spot.side} cm beside the line, facing an emitter` : `${D.spot.along} cm from the emitter`}</text>`);
   }
   // Width scale.
   const nice = [0.1, 0.2, 0.25, 0.5, 1, 2, 5].find((m) => m * pxm > 60) || 5;
@@ -223,7 +224,7 @@ function topView(D, { x, y, w, h }) {
 function sectionSvg(D, { title = "" } = {}) {
   const W = 760, C = SECTION_COLORS, parts = [];
   let y = title ? 34 : 6;
-  parts.push(`<text x="16" y="${y + 14}" font-size="13" font-weight="600" fill="#1d2a22">${D.kind === "drip" ? "Cut along the drip line" : "Cut across the rows"}</text>`); y += 22;
+  parts.push(`<text x="16" y="${y + 14}" font-size="13" font-weight="600" fill="#1d2a22">${D.kind === "drip" ? `Cut along the drip line${D.probe && D.spot ? `: the probe stands ${D.spot.side} cm in front of it, facing an emitter (see the view from above)` : ""}` : "Cut across the rows"}</text>`); y += 22;
   const a = sectionPanel(D, { W, top: y }); parts.push(a.svg); y += a.h + 6;
   const key = [
     ...(D.roots ? [[`<path d="M2,1 Q8,6 11,12 M11,1 Q12,6 14,12 M20,1 Q16,6 15,12" stroke="${C.root}" stroke-width="1.6" fill="none"/>`, "Roots, down to today's depth"],
@@ -237,7 +238,7 @@ function sectionSvg(D, { title = "" } = {}) {
   y += 14 + Math.ceil(key.length / 2) * 20;
   const so = D.soil, B = SOIL_BULB[so.cls];
   const soilLine = D.kind === "none" ? "" : so.texture
-    ? `Soil: ${so.texture} (about ${fmt(so.clay, 0)}% clay, ${fmt(so.sand, 0)}% sand${D.texSource ? `, ${D.texSource}` : ""}), a ${B.name} soil: ${so.cls === "light" ? "water goes mostly down, so the bulbs are narrow and deep." : "water spreads sideways too, so the bulbs are onion-shaped."}`
+    ? `Soil: ${so.texture} (about ${fmt(so.clay, 0)}% clay, ${fmt(so.sand, 0)}% sand${D.texSource ? `, ${D.texSource}` : ""}), a ${B.name} soil: ${so.cls === "light" ? "water goes mostly down, so the bulbs are narrow and deep" : so.cls === "heavy" ? "water spreads sideways near the surface first, so the bulbs are wide and onion-shaped" : "water spreads sideways too, so the bulbs are onion-shaped"}${D.kind === "drip" && D.emitter < 2 * B.rx ? ", and with these emitters they join into one wet strip along the line." : "."}`
     : "";
   const notes = [
     soilLine,
