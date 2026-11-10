@@ -120,14 +120,13 @@ function computeRoots(inp) {
 const RANGE = {
   veg: { label: "Vegetable crops", lengths: [10, 20, 30, 40, 50], sensors: [1, 5] },
   berry: { label: "Berries and small fruits", lengths: [10, 20, 30, 40, 50, 60], sensors: [1, 6] },
-  tree: { label: "Fruit trees", lengths: [50, 60, 70, 80, 90, 100, 120, 150], sensors: [2, 10], wireless: { lengths: [50, 60, 70, 80, 90, 100], sensors: [2, 8] } },
-  vine: { label: "Viticulture", lengths: [60, 70, 80, 90, 100, 120, 150], sensors: [2, 10], wireless: { lengths: [60, 70, 80, 90, 100], sensors: [2, 8] } },
+  tree: { label: "Fruit trees", lengths: [50, 60, 70, 80, 90, 100, 120, 150], sensors: [2, 10] },
+  vine: { label: "Viticulture", lengths: [60, 70, 80, 90, 100, 120, 150], sensors: [2, 10] },
 };
 // Crops the catalogue does not list in a family (field crops, forage) get the whole HydraScout range (20 to 150 cm).
 const RANGE_ALL = { label: "HydraScout range", lengths: [20, 30, 40, 50, 60, 70, 80, 90, 100, 120, 150], sensors: [1, 10] };
 const CROP_FAMILY = { potato: "veg", tomato: "veg", melon: "veg", onion: "veg", carrot: "veg", lettuce: "veg", beans: "veg", peas: "veg", sugarbeet: "veg",
   strawberry: "berry", apple: "tree", stone: "tree", olive: "tree", citrus: "tree", walnut: "tree", kiwi: "tree", vine: "vine" };
-const WIRELESS_MAX = { lora: 6, ltem: 8 }; // sensors per HydraScout® Wireless probe
 
 // Sensor depths for a probe length: every 10 cm up to 60 cm, every 20 cm on longer probes (always ending at
 // the bottom of the probe), kept within the family's sensor count.
@@ -138,16 +137,11 @@ function sensorDepths(len, [lo, hi]) {
 }
 
 // Shortest probe whose bottom sensor sits just below the deepest roots, so it sees water draining past them.
-// link: "cable", "lora" or "ltem".
-function recommendProbe(roots, cropKey, link = "cable") {
+function recommendProbe(roots, cropKey) {
   if (!roots) return null;
   const target = roots.maxCm + 10, fam = RANGE[CROP_FAMILY[cropKey]], notes = [];
-  let r = fam || RANGE_ALL, product = "HydraScout®";
+  const r = fam || RANGE_ALL, product = "HydraScout®";
   if (!fam) notes.push(`${roots.crop} is not in a crop family of the HSTI catalogue: the whole HydraScout range (up to 150 cm) is used. Check the configuration with HSTI.`);
-  if (link !== "cable") {
-    if (fam && fam.wireless) { r = { ...fam, ...fam.wireless }; product = `HydraScout® Wireless (${link === "lora" ? "LoRaWAN" : "LTE-M"}, pre-production)`; r.sensors = [r.sensors[0], Math.min(r.sensors[1], WIRELESS_MAX[link])]; }
-    else notes.push("HydraScout® Wireless is only listed for fruit trees and vines: a cabled HydraScout® is suggested.");
-  }
   let len = r.lengths.find((l) => l >= target);
   if (len == null) {
     len = r.lengths[r.lengths.length - 1];
@@ -159,10 +153,8 @@ function recommendProbe(roots, cropKey, link = "cable") {
   }
   const depths = sensorDepths(len, r.sensors) || [len];
   // HSTI product code: H-LLSS-A, LL = length in decimetres, SS = number of sensors (60 cm, 4 sensors = H-0604-A).
-  // Only confirmed for the cabled HydraScout®; the Wireless version's code is not known yet.
   const pad2 = (n) => String(n).padStart(2, "0");
-  const code = product === "HydraScout®" ? `H-${pad2(len / 10)}${pad2(depths.length)}-A` : null;
-  if (!code) notes.push("Product code of the Wireless version: to confirm with HSTI.");
+  const code = `H-${pad2(len / 10)}${pad2(depths.length)}-A`;
   return { target, product, code, lengthCm: len, depthsCm: depths, family: r.label, notes,
     ref: `${product} ${len} cm with ${depths.length} sensor${depths.length > 1 ? "s" : ""}` };
 }
@@ -172,6 +164,6 @@ function rootsSummary(r, rec) {
   const lines = [];
   if (r.nowCm != null) lines.push(`Roots now: about ${r.nowCm} cm (${r.stageLabel}, from ${r.src}).`);
   lines.push(`Deepest effective roots${r.kind === "annual" ? " this season" : ""}: about ${r.maxCm} cm (FAO-56 gives ${r.rangeCm[0]}–${r.rangeCm[1]} cm for ${r.crop.toLowerCase()}; ${r.lowEnd ? "low end used for an irrigated field" : "middle used for a rainfed field"}). About 70% of the water comes from the top ${r.activeCm} cm.`);
-  if (rec) lines.push(`Suggested probe: ${rec.code ? `${rec.code}, ` : ""}${rec.ref}, at ${rec.depthsCm.join(", ")} cm (each measures moisture and temperature).${rec.lengthCm > r.maxCm ? " The bottom sensor sits just below the roots to see water draining past them." : ""}`);
+  if (rec) lines.push(`Suggested probe: ${rec.code}, ${rec.ref}, at ${rec.depthsCm.join(", ")} cm (each measures moisture and temperature).${rec.lengthCm > r.maxCm ? " The bottom sensor sits just below the roots to see water draining past them." : ""}`);
   return lines.concat(r.notes, rec ? rec.notes : []);
 }

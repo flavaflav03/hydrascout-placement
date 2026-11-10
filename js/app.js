@@ -608,12 +608,12 @@ function updateIrrigation() {
 $("pivCentreBtn").addEventListener("click", () => setMode(S.mode === "pivot" ? null : "pivot"));
 
 // ---------- crop and root depth ----------
-function readCrop() { return { crop: $("crop").value, sowing: $("sowing").value || null, stage: $("cropStage").value, young: !!$("cropYoung").value, link: $("probeLink").value }; }
+function readCrop() { return { crop: $("crop").value, sowing: $("sowing").value || null, stage: $("cropStage").value, young: !!$("cropYoung").value }; }
 function currentRoots() {
   const c = readCrop(); if (!c.crop) return null;
   const sc = S.scenes && S.scenes.length && S.ndvi && S.scenes[TL.idx] && S.scenes[TL.idx].nd === S.ndvi ? S.scenes[TL.idx] : null;
   const roots = computeRoots({ ...c, irrigated: $("irrType").value !== "none", shown: sc, scenes: sc ? S.scenes : [], soils: KEY.here || [], today: new Date().toISOString().slice(0, 10) });
-  return roots && { roots, probe: recommendProbe(roots, c.crop, c.link) };
+  return roots && { roots, probe: recommendProbe(roots, c.crop) };
 }
 function renderRoots() {
   const c = readCrop(), k = c.crop && CROPS[c.crop] ? CROPS[c.crop].kind : null;
@@ -626,13 +626,13 @@ function renderRoots() {
   out.innerHTML = `<dl class="summary">
       <div><dt>Roots now</dt><dd>${r.nowCm != null ? `${r.nowCm} cm` : r.kind === "perennial" ? `${r.maxCm} cm` : "–"}</dd></div>
       <div><dt>Deepest${r.kind === "annual" ? " this season" : ""}</dt><dd>${r.maxCm} cm</dd></div>
-      <div><dt>Suggested probe</dt><dd>${p.code ? `${p.code}<br>` : ""}${p.lengthCm} cm · ${p.depthsCm.length} sensor${p.depthsCm.length > 1 ? "s" : ""}</dd></div>
+      <div><dt>Suggested probe</dt><dd>${p.code}<br>${p.lengthCm} cm · ${p.depthsCm.length} sensor${p.depthsCm.length > 1 ? "s" : ""}</dd></div>
     </dl>
     <div class="root-bar" aria-hidden="true" title="Soil profile: light green = deepest roots, dark green = top half where most water is taken, blue line = roots now, black bar = suggested probe"><span class="active" style="height:${pct(r.activeCm)}"></span><span class="all" style="height:${pct(r.maxCm)}"></span>${r.nowCm != null ? `<span class="now" style="top:${pct(r.nowCm)}"></span>` : ""}<span class="probe" style="height:${pct(p.lengthCm)}"></span></div>
     <ul class="notes">${rootsSummary(r, p).map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>
     <p class="hint">Probe lengths and sensor counts from the HSTI catalogue (${escapeHtml(p.family)}). Confirm the final configuration with HSTI.</p>`;
 }
-["crop", "sowing", "cropStage", "cropYoung", "probeLink"].forEach((id) => $(id).addEventListener(id === "sowing" ? "input" : "change", renderRoots));
+["crop", "sowing", "cropStage", "cropYoung"].forEach((id) => $(id).addEventListener(id === "sowing" ? "input" : "change", renderRoots));
 $("irrType").addEventListener("change", renderRoots);
 
 // ---------- irrigation blocks ----------
@@ -1160,7 +1160,7 @@ $("dlGeo").onclick = () => S.result && exportGeoJson(S.result, exportCtx());
   }
   updateIrrigation();
   const sc = store.get("hs.crop");
-  if (sc && CROPS[sc.crop]) { $("crop").value = sc.crop; $("sowing").value = sc.sowing || ""; $("cropStage").value = sc.stage || "auto"; $("cropYoung").value = sc.young ? "1" : ""; if (sc.link) $("probeLink").value = sc.link; }
+  if (sc && CROPS[sc.crop]) { $("crop").value = sc.crop; $("sowing").value = sc.sowing || ""; $("cropStage").value = sc.stage || "auto"; $("cropYoung").value = sc.young ? "1" : ""; }
   renderRoots();
   const nb = store.get("hs.nBlocks"); if (nb >= 1) $("nBlocks").value = nb;
   const sb = store.get("hs.blocks");
