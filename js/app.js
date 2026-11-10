@@ -933,7 +933,7 @@ function renderNeed() {
   line.hidden = !want;
   if (!want) return;
   const probes = `<b>${want} probe${want > 1 ? "s" : ""}</b>, one per block`;
-  line.innerHTML = !drawn ? `You need ${probes}. Draw the borders of each block (“Draw the blocks”) so every probe lands inside its own block, away from its borders.`
+  line.innerHTML = !drawn ? `You need ${probes}. Press “Draw borders” on each block below so every probe lands inside its own block, away from its borders.`
     : drawn < want ? `You need ${probes}. ${drawn} of ${want} blocks drawn: blocks without borders get no probe.`
     : `You need ${probes}. All ${want} blocks are drawn.`;
 }
