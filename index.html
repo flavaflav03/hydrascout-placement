@@ -10,13 +10,16 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Asap:wght@400;500;600;700&family=League+Spartan:wght@600;700&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
-<link rel="stylesheet" href="css/app.css?v=29">
+<link rel="stylesheet" href="css/app.css?v=30">
 </head>
 <body>
 <div id="app">
   <aside id="panel" data-mode="">
     <header>
-      <div class="brand-logo" id="brandLogo" role="img" aria-label="HydraScout, soil moisture management by HSTI"></div>
+      <div class="head-top">
+        <div class="brand-logo" id="brandLogo" role="img" aria-label="HydraScout, soil moisture management by HSTI"></div>
+        <button type="button" class="reset-btn" id="resetBtn" data-icon="user" title="Clear everything and start again for a new customer">New customer</button>
+      </div>
       <h1>Placement tool</h1>
       <p>Find how many HydraScout probes a farm needs and the most representative spot for each one.</p>
     </header>
@@ -303,6 +306,14 @@
 
     <footer><p class="disclaimer">Recommendations are a starting point: check each spot on the ground before installing.</p><details><summary>Data sources</summary><p>Elevation and relief IGN LiDAR HD / RGE ALTI (France), AWS terrain tiles elsewhere, Copernicus DEM GLO-90 via Open-Meteo as a fallback, Esri hillshade · soil ISRIC SoilGrids 2.0 · NDVI Copernicus Sentinel-2 via Earth Search (AWS) · address search IGN Géoplateforme (Base Adresse Nationale) and OpenStreetMap Nominatim · imagery Esri.</p></details></footer>
   </aside>
+  <dialog id="resetDlg" class="reset-dlg" aria-labelledby="resetQ">
+    <form method="dialog">
+      <h2 id="resetQ">Start again for a new customer?</h2>
+      <p>This clears the field, the blocks, the probes, the irrigation, the crop and the return on investment figures, and goes back to the first step.</p>
+      <p class="hint">Your HSTI prices (probe, lease, subscription) and the device lookup login are kept.</p>
+      <div class="row reset-act"><button type="submit" value="cancel" id="resetNo">Cancel</button><button type="submit" value="ok" class="primary" id="resetYes" data-icon="trash">Clear everything</button></div>
+    </form>
+  </dialog>
   <div id="mapwrap">
     <div id="map"></div>
     <div id="drawbar" hidden></div>
@@ -312,18 +323,18 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.2/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
-<script src="js/util.js?v=29"></script>
-<script src="js/brand.js?v=29"></script>
-<script src="js/ui.js?v=29"></script>
-<script src="js/icons.js?v=29"></script>
-<script src="js/sources.js?v=29"></script>
-<script src="js/analysis.js?v=29"></script>
-<script src="js/crop.js?v=29"></script>
-<script src="js/roi.js?v=29"></script>
-<script src="js/section.js?v=29"></script>
-<script src="js/layout.js?v=29"></script>
-<script src="js/report.js?v=29"></script>
-<script src="js/terrain3d.js?v=29"></script>
-<script src="js/app.js?v=29"></script>
+<script src="js/util.js?v=30"></script>
+<script src="js/brand.js?v=30"></script>
+<script src="js/ui.js?v=30"></script>
+<script src="js/icons.js?v=30"></script>
+<script src="js/sources.js?v=30"></script>
+<script src="js/analysis.js?v=30"></script>
+<script src="js/crop.js?v=30"></script>
+<script src="js/roi.js?v=30"></script>
+<script src="js/section.js?v=30"></script>
+<script src="js/layout.js?v=30"></script>
+<script src="js/report.js?v=30"></script>
+<script src="js/terrain3d.js?v=30"></script>
+<script src="js/app.js?v=30"></script>
 </body>
 </html>

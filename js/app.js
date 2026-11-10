@@ -1215,6 +1215,29 @@ function setAppMode(m) {
 $("modePick").addEventListener("click", (e) => { const b = e.target.closest("[data-mode]"); if (b) setAppMode(b.dataset.mode); });
 $("modeChange").addEventListener("click", () => setAppMode(null));
 
+// ---------- new customer (reset) ----------
+// On trade shows the app moves from one visitor to the next: one button clears every saved setting and reloads
+// on the first step. Kept: HSTI's own prices and scenario rates in the ROI step, the Logger Overview address and
+// the map key preference. The device lookup login is a cookie of the Logger Overview server, so it stays too.
+const RESET_KEEP = ["hs.loggerUrl", "hs.keyOpen"];
+const ROI_KEEP = ["roiPrice", "roiLease", "roiSub", "roiLo", "roiMid", "roiHi"];
+function resetForNewCustomer() {
+  const roi = store.get("hs.roi"), keepRoi = {};
+  if (roi) for (const id of ROI_KEEP) if (roi[id] != null && roi[id] !== "") keepRoi[id] = roi[id];
+  try {
+    const keys = []; for (let i = 0; i < localStorage.length; i++) keys.push(localStorage.key(i));
+    for (const k of keys) if (k && k.startsWith("hs.") && !RESET_KEEP.includes(k)) localStorage.removeItem(k);
+  } catch (e) {}
+  if (Object.keys(keepRoi).length) store.set("hs.roi", keepRoi);
+  location.replace(location.pathname + location.search); // drops any #device link and reloads clean
+}
+$("resetBtn").addEventListener("click", () => {
+  const d = $("resetDlg");
+  if (typeof d.showModal !== "function") { if (confirm("Start again for a new customer? Everything entered is cleared.")) resetForNewCustomer(); return; }
+  d.returnValue = ""; d.showModal(); $("resetNo").focus();
+});
+$("resetDlg").addEventListener("close", () => { if ($("resetDlg").returnValue === "ok") resetForNewCustomer(); });
+
 // ---------- installed probes ----------
 // Probes already in the ground, from their device GPS, placed by hand or imported. Each can be dragged to its
 // true position; once checked, the check follows the pin as it moves.
