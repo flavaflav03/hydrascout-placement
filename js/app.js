@@ -613,8 +613,44 @@ function currentRoots() {
   const c = readCrop(); if (!c.crop) return null;
   const sc = S.scenes && S.scenes.length && S.ndvi && S.scenes[TL.idx] && S.scenes[TL.idx].nd === S.ndvi ? S.scenes[TL.idx] : null;
   const roots = computeRoots({ ...c, irrigated: $("irrType").value !== "none", shown: sc, scenes: sc ? S.scenes : [], soils: KEY.here || [], today: new Date().toISOString().slice(0, 10) });
-  return roots && { roots, probe: recommendProbe(roots, c.crop) };
+  if (!roots) return null;
+  const sug = recommendProbe(roots, c.crop), pk = S.probePick;
+  // A probe picked by hand (length and sensor depths) replaces the suggestion for this crop.
+  const probe = pk && pk.crop === c.crop ? makeProbe(pk.len, pk.depths, { ...sug, custom: true, suggested: sug }) : sug;
+  return { roots, probe };
 }
+S.probePick = store.get("hs.probePick");
+function setProbePick(pk) { S.probePick = pk; store.set("hs.probePick", pk); renderRoots(); }
+function probePickHtml(p) {
+  const sug = p.suggested || p, fam = sug.lengths || [], warn = [];
+  if (!fam.includes(p.lengthCm)) warn.push(`${p.lengthCm} cm is not a usual length for ${sug.family.toLowerCase()} (${fam.join(", ")} cm).`);
+  if (sug.sensors && (p.depthsCm.length < sug.sensors[0] || p.depthsCm.length > sug.sensors[1])) warn.push(`${sug.family} probes usually have ${sug.sensors[0]} to ${sug.sensors[1]} sensors.`);
+  const boxes = [];
+  for (let d = 10; d <= p.lengthCm; d += 10) boxes.push(`<label class="chip${p.depthsCm.includes(d) ? " on" : ""}"><input type="checkbox" data-depth="${d}"${p.depthsCm.includes(d) ? " checked" : ""}>${d}</label>`);
+  return `<div class="probe-pick">
+    <h3 class="sub-h">Probe configuration</h3>
+    <div class="opt"><label for="pLen">Probe length</label><select id="pLen">${ALL_LENGTHS.map((l) => `<option value="${l}"${l === p.lengthCm ? " selected" : ""}>${l} cm${fam.includes(l) ? "" : " (not usual)"}</option>`).join("")}</select></div>
+    <p class="lbl">Sensor depths (cm), ${p.depthsCm.length} of ${MAX_SENSORS} max</p>
+    <div class="chips">${boxes.join("")}</div>
+    <p class="probe-code"><b>${p.code}</b> · ${escapeHtml(p.ref)}</p>
+    ${warn.map((w) => `<p class="hint warn">${escapeHtml(w)}</p>`).join("")}
+    ${p.custom ? `<button type="button" class="link" data-act="probeReset">Back to the suggestion (${sug.code})</button>` : ""}
+  </div>`;
+}
+$("rootOut").addEventListener("change", (e) => {
+  const x = currentRoots(); if (!x) return;
+  const p = x.probe, crop = $("crop").value;
+  if (e.target.id === "pLen") {
+    const len = +e.target.value;
+    setProbePick({ crop, len, depths: sensorDepths(len, [1, MAX_SENSORS]) || [len] });
+  } else if (e.target.dataset.depth) {
+    const d = +e.target.dataset.depth, on = e.target.checked;
+    const depths = on ? p.depthsCm.concat(d) : p.depthsCm.filter((v) => v !== d);
+    if (!depths.length || depths.length > MAX_SENSORS) { e.target.checked = !on; return; }
+    setProbePick({ crop, len: p.lengthCm, depths });
+  }
+});
+$("rootOut").addEventListener("click", (e) => { if (e.target.closest('[data-act="probeReset"]')) setProbePick(null); });
 function renderRoots() {
   const c = readCrop(), k = c.crop && CROPS[c.crop] ? CROPS[c.crop].kind : null;
   $("cropAnnual").hidden = k !== "annual"; $("cropPerennial").hidden = k !== "perennial";
@@ -626,11 +662,12 @@ function renderRoots() {
   out.innerHTML = `<dl class="summary">
       <div><dt>Roots now</dt><dd>${r.nowCm != null ? `${r.nowCm} cm` : r.kind === "perennial" ? `${r.maxCm} cm` : "–"}</dd></div>
       <div><dt>Deepest${r.kind === "annual" ? " this season" : ""}</dt><dd>${r.maxCm} cm</dd></div>
-      <div><dt>Suggested probe</dt><dd>${p.code}<br>${p.lengthCm} cm · ${p.depthsCm.length} sensor${p.depthsCm.length > 1 ? "s" : ""}</dd></div>
+      <div><dt>${p.custom ? "Chosen probe" : "Suggested probe"}</dt><dd>${p.code}<br>${p.lengthCm} cm · ${p.depthsCm.length} sensor${p.depthsCm.length > 1 ? "s" : ""}</dd></div>
     </dl>
     <div class="root-bar" aria-hidden="true" title="Soil profile: light green = deepest roots, dark green = top half where most water is taken, blue line = roots now, black bar = suggested probe"><span class="active" style="height:${pct(r.activeCm)}"></span><span class="all" style="height:${pct(r.maxCm)}"></span>${r.nowCm != null ? `<span class="now" style="top:${pct(r.nowCm)}"></span>` : ""}<span class="probe" style="height:${pct(p.lengthCm)}"></span></div>
     <ul class="notes">${rootsSummary(r, p).map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>
-    <p class="hint">Probe lengths and sensor counts from the HSTI catalogue (${escapeHtml(p.family)}). Confirm the final configuration with HSTI.</p>`;
+    ${probePickHtml(p)}
+    <p class="hint">Suggested lengths and sensor counts follow the HSTI catalogue (${escapeHtml(p.family)}). Change the length or tick the sensor depths to build another configuration: the product code follows.</p>`;
 }
 ["crop", "sowing", "cropStage", "cropYoung"].forEach((id) => $(id).addEventListener(id === "sowing" ? "input" : "change", renderRoots));
 $("irrType").addEventListener("change", renderRoots);

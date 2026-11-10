@@ -122,10 +122,13 @@ const RANGE = {
   berry: { label: "Berries and small fruits", lengths: [10, 20, 30, 40, 50, 60], sensors: [1, 6] },
   tree: { label: "Fruit trees", lengths: [50, 60, 70, 80, 90, 100, 120, 150], sensors: [2, 10] },
   vine: { label: "Viticulture", lengths: [60, 70, 80, 90, 100, 120, 150], sensors: [2, 10] },
+  // Not a catalogue family: HSTI usually recommends 60 or 80 cm probes for field crops (Flavien, 2026-11-10).
+  field: { label: "Field crops", lengths: [60, 80], sensors: [1, 8], usual: true },
 };
-// Crops the catalogue does not list in a family (field crops, forage) get the whole HydraScout range (20 to 150 cm).
-const RANGE_ALL = { label: "HydraScout range", lengths: [20, 30, 40, 50, 60, 70, 80, 90, 100, 120, 150], sensors: [1, 10] };
-const CROP_FAMILY = { potato: "veg", tomato: "veg", melon: "veg", onion: "veg", carrot: "veg", lettuce: "veg", beans: "veg", peas: "veg", sugarbeet: "veg",
+// Every HydraScout® length in the catalogue, offered when the user picks the probe by hand.
+const ALL_LENGTHS = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 120, 150];
+const MAX_SENSORS = 10;
+const CROP_FAMILY = { maize: "field", maizeSilage: "field", wheat: "field", barley: "field", sorghum: "field", sunflower: "field", soybean: "field", alfalfa: "field", grass: "field", potato: "veg", tomato: "veg", melon: "veg", onion: "veg", carrot: "veg", lettuce: "veg", beans: "veg", peas: "veg", sugarbeet: "veg",
   strawberry: "berry", apple: "tree", stone: "tree", olive: "tree", citrus: "tree", walnut: "tree", kiwi: "tree", vine: "vine" };
 
 // Sensor depths for a probe length: every 10 cm up to 60 cm, every 20 cm on longer probes (always ending at
@@ -136,27 +139,29 @@ function sensorDepths(len, [lo, hi]) {
   return d.length >= lo ? d : null;
 }
 
+// HSTI product code: H-LLSS-A, LL = length in decimetres, SS = number of sensors (60 cm, 4 sensors = H-0604-A).
+const pad2 = (n) => String(n).padStart(2, "0");
+function makeProbe(len, depths, extra = {}) {
+  depths = [...new Set(depths)].filter((d) => d >= 10 && d <= len && d % 10 === 0).sort((a, b) => a - b);
+  return { ...extra, product: "HydraScout®", code: `H-${pad2(len / 10)}${pad2(depths.length)}-A`, lengthCm: len, depthsCm: depths,
+    ref: `HydraScout® ${len} cm with ${depths.length} sensor${depths.length > 1 ? "s" : ""}` };
+}
+
 // Shortest probe whose bottom sensor sits just below the deepest roots, so it sees water draining past them.
 function recommendProbe(roots, cropKey) {
   if (!roots) return null;
-  const target = roots.maxCm + 10, fam = RANGE[CROP_FAMILY[cropKey]], notes = [];
-  const r = fam || RANGE_ALL, product = "HydraScout®";
-  if (!fam) notes.push(`${roots.crop} is not in a crop family of the HSTI catalogue: the whole HydraScout range (up to 150 cm) is used. Check the configuration with HSTI.`);
+  const target = roots.maxCm + 10, r = RANGE[CROP_FAMILY[cropKey]], notes = [];
   let len = r.lengths.find((l) => l >= target);
   if (len == null) {
     len = r.lengths[r.lengths.length - 1];
-    notes.push(len >= roots.maxCm
+    if (r.usual) notes.push(`HSTI usually fits ${r.lengths.join(" or ")} cm probes in ${r.label.toLowerCase()}: the ${len} cm probe ${len >= roots.activeCm ? `covers the main root zone (top ${roots.activeCm} cm), where most of the water is taken` : `covers the top ${len} cm of the ${roots.activeCm} cm where most of the water is taken`}.`);
+    else notes.push(len >= roots.maxCm
       ? `The longest ${r.label.toLowerCase()} probe (${len} cm) reaches the bottom of the roots, but no sensor sits below them to see drainage.`
       : len >= roots.activeCm
       ? `The deepest roots (${roots.maxCm} cm) go past the longest ${r.label.toLowerCase()} probe (${len} cm); it still covers the top ${roots.activeCm} cm where most of the water is taken.`
       : `The longest ${r.label.toLowerCase()} probe (${len} cm) does not reach the main root zone (${roots.activeCm} cm). Check with HSTI.`);
   }
-  const depths = sensorDepths(len, r.sensors) || [len];
-  // HSTI product code: H-LLSS-A, LL = length in decimetres, SS = number of sensors (60 cm, 4 sensors = H-0604-A).
-  const pad2 = (n) => String(n).padStart(2, "0");
-  const code = `H-${pad2(len / 10)}${pad2(depths.length)}-A`;
-  return { target, product, code, lengthCm: len, depthsCm: depths, family: r.label, notes,
-    ref: `${product} ${len} cm with ${depths.length} sensor${depths.length > 1 ? "s" : ""}` };
+  return makeProbe(len, sensorDepths(len, r.sensors) || [len], { target, family: r.label, lengths: r.lengths, sensors: r.sensors, notes });
 }
 
 function rootsSummary(r, rec) {
@@ -164,6 +169,6 @@ function rootsSummary(r, rec) {
   const lines = [];
   if (r.nowCm != null) lines.push(`Roots now: about ${r.nowCm} cm (${r.stageLabel}, from ${r.src}).`);
   lines.push(`Deepest effective roots${r.kind === "annual" ? " this season" : ""}: about ${r.maxCm} cm (FAO-56 gives ${r.rangeCm[0]}–${r.rangeCm[1]} cm for ${r.crop.toLowerCase()}; ${r.lowEnd ? "low end used for an irrigated field" : "middle used for a rainfed field"}). About 70% of the water comes from the top ${r.activeCm} cm.`);
-  if (rec) lines.push(`Suggested probe: ${rec.code}, ${rec.ref}, at ${rec.depthsCm.join(", ")} cm (each measures moisture and temperature).${rec.lengthCm > r.maxCm ? " The bottom sensor sits just below the roots to see water draining past them." : ""}`);
-  return lines.concat(r.notes, rec ? rec.notes : []);
+  if (rec) lines.push(`${rec.custom ? "Chosen probe" : "Suggested probe"}: ${rec.code}, ${rec.ref}, at ${rec.depthsCm.join(", ")} cm (each measures moisture and temperature).${rec.lengthCm > r.maxCm ? " The bottom sensor sits just below the roots to see water draining past them." : ""}`);
+  return lines.concat(r.notes, rec && !rec.custom ? rec.notes : []);
 }

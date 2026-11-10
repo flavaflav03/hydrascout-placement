@@ -306,3 +306,13 @@ button *, .btn > svg, .btn > span { pointer-events: none; } /* clicks land on th
 .root-bar .now { height: 0; border-top: 2px solid #2f7fbf; }
 .root-bar .probe { left: 45%; right: 45%; background: var(--ink); border-radius: 0 0 3px 3px; }
 .roots .summary div { background: var(--panel); }
+.probe-pick { grid-column: 1 / -1; display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+.probe-pick .sub-h, .probe-pick .lbl, .probe-pick p { margin: 0; }
+.probe-pick .lbl { font-size: 13px; color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 36px; padding: 0 8px; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); font: 500 13px "IBM Plex Mono", monospace; cursor: pointer; }
+.chip input { position: absolute; opacity: 0; pointer-events: none; }
+.chip.on { background: #2f7fbf; border-color: #2f7fbf; color: #fff; }
+.chip:focus-within { outline: 2px solid #2f7fbf; outline-offset: 2px; }
+.probe-code { font: 500 14px "IBM Plex Mono", monospace; }
+.hint.warn { color: #b0652a; }
