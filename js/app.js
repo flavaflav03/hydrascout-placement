@@ -804,7 +804,7 @@ keyBox.addEventListener("click", (e) => { const b = e.target.closest("button"); 
 
 // Probe pins on the plan: the recommended spots, or the installed probes when checking.
 function layoutProbes() {
-  if (appMode() === "check" && S.probes && S.probes.length) return S.probes.map((p, i) => ({ label: String(i + 1), color: "#2f6b45", lat: p.lat, lon: p.lon }));
+  if (appMode() === "check" && S.probes && S.probes.length) return S.probes.map((p, i) => ({ label: String(i + 1), color: "#0380B8", lat: p.lat, lon: p.lon }));
   return S.result ? S.result.sensors.map((s, i) => ({ label: String(i + 1), color: zoneColor(s.zone), lat: s.lat, lon: s.lon })) : [];
 }
 function layoutPlan() {
@@ -950,7 +950,7 @@ function renderNeed() {
   line.hidden = !want;
   if (!want) return;
   const probes = `<b>${want} probe${want > 1 ? "s" : ""}</b>, one per block`;
-  line.innerHTML = !drawn ? `You need ${probes}. Draw the borders of each block (“Draw the blocks”) so every probe lands inside its own block, away from its borders.`
+  line.innerHTML = !drawn ? `You need ${probes}. Press “Draw borders” on each block below so every probe lands inside its own block, away from its borders.`
     : drawn < want ? `You need ${probes}. ${drawn} of ${want} blocks drawn: blocks without borders get no probe.`
     : `You need ${probes}. All ${want} blocks are drawn.`;
 }
@@ -961,7 +961,7 @@ $("nBlocks").addEventListener("input", () => {
 $("blockList").addEventListener("input", (e) => {
   const i = e.target.dataset.i; if (i == null) return;
   const b = S.blocks[+i]; b.name = e.target.value.trim() || nextBlockName(); clearResult(); store.set("hs.blocks", S.blocks);
-  if (b.ring) blockLayer.getLayers()[drawnBlocks().indexOf(b)].setTooltipContent(escapeHtml(b.name));
+  if (b.ring) blockLayer.getLayers()[drawnBlocks().indexOf(b)].setTooltipContent(escapeHtml(b.name)); renderLayout();
   renderKey();
 });
 $("blockList").addEventListener("click", (e) => {
@@ -1420,7 +1420,7 @@ function view3dOpts() {
   const rings = S.fieldFromBlocks ? drawnBlocks().map((b) => ({ name: `Block ${b.name}`, color: blockColor(b), ring: b.ring }))
     : [{ name: S.isExample ? "Example field" : "Field", color: "#ffffff", ring: S.field }];
   const check = appMode() === "check";
-  const spots = check ? S.probes.map((p, i) => ({ label: String(i + 1), color: "#2f6b45", lat: p.lat, lon: p.lon }))
+  const spots = check ? S.probes.map((p, i) => ({ label: String(i + 1), color: "#0380B8", lat: p.lat, lon: p.lon }))
     : S.result ? S.result.sensors.map((s, i) => ({ label: String(i + 1), color: zoneColor(s.zone), lat: s.lat, lon: s.lon })) : [];
   return { rings, spots, ndvi: S.ndvi && S.ndvi.overlay };
 }

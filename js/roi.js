@@ -140,7 +140,7 @@ function roiCostText(X) {
 }
 
 // Headline and water story, used in the app and in the report (the report has its own matching styles).
-const DROP_SVG = '<svg class="roi-drop" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path d="M12 2.5C9 7 5.5 10.6 5.5 14.5a6.5 6.5 0 0 0 13 0C18.5 10.6 15 7 12 2.5Z" fill="#2b7bb9"/><path d="M9 14.5a3 3 0 0 0 3 3" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>';
+const DROP_SVG = '<svg class="roi-drop" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path d="M12 2.5C9 7 5.5 10.6 5.5 14.5a6.5 6.5 0 0 0 13 0C18.5 10.6 15 7 12 2.5Z" fill="#0380B8"/><path d="M9 14.5a3 3 0 0 0 3 3" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>';
 function roiSummaryHtml(X, probes = X.probes) {
   const mid = X.scenarios[1];
   const head = `<p class="roi-headline">${probes ? `<b>${probes} probe${probes > 1 ? "s" : ""}</b>: ` : ""}about <b>${eur(mid.saved)} saved every season</b>${X.priced ? `, paying back <b>${paybackText(mid.payback, true)}</b>${mid.gain5 > 0 ? ` and <b>${eur(mid.gain5)} in your pocket after ${ROI_YEARS} years</b>` : ""}` : ""} (expected case).</p>`;
