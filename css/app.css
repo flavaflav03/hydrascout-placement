@@ -303,6 +303,13 @@ button *, .btn > svg, .btn > span { pointer-events: none; } /* clicks land on th
 .v3-stats i { width: 10px; height: 10px; border-radius: 2px; border: 1px solid var(--line); }
 .v3-foot .hint { margin: 0; }
 @media (max-width: 760px) { .v3-title { width: 100%; } .v3-bar { gap: 6px; } .v3-foot .hint { font-size: 12px; } .v3-here { bottom: auto; top: 10px; } }
+/* Irrigation equipment layout: valves on the map, key symbols and the 2D plan window */
+.valve-pin { width: 18px; height: 18px; box-sizing: border-box; border-radius: 3px; background: #d84315; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); cursor: grab;
+  background-image: linear-gradient(45deg, transparent 44%, #fff 44%, #fff 56%, transparent 56%), linear-gradient(-45deg, transparent 44%, #fff 44%, #fff 56%, transparent 56%); }
+.valve-pin:not(.set) { opacity: .85; border-style: dashed; }
+.map-key .ly-sym { flex: none; width: 26px; height: 16px; margin-top: 1px; }
+.plan2d .p2-stage { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 12px; background: #dfe6e0; }
+.plan2d .p2-stage svg { display: block; margin: 0 auto; box-shadow: 0 1px 6px rgba(0,0,0,.2); }
 .roi-scroll { overflow-x: auto; margin: 0 -4px; }
 .roi-water { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 6px; background: #e6f1f9; border-left: 3px solid #2b7bb9; color: #133a57; }
 .roi-water .roi-drop { flex: none; margin-top: 2px; }

@@ -23,6 +23,7 @@ function irrigationSummary(irr) {
     if (irr.pivot.span) parts.push(`spans of ${irr.pivot.span} m`);
     if (irr.type === "pivot" && irr.pivot.lat != null) parts.push(`centre ${irr.pivot.lat.toFixed(5)}, ${irr.pivot.lon.toFixed(5)}`);
   }
+  if (irr.rowBearing != null) parts.push(`rows ${irr.rowBearing}° from north`);
   if (irr.notes) parts.push(irr.notes);
   return parts.join(", ");
 }
@@ -120,6 +121,7 @@ ${X && !C ? roiSummaryHtml(X, X.probes || R.sensors.length).replace('class="roi-
 <h2>Plan</h2>${fieldSvg(R, ctx)}
 ${C ? `<p class="notes">◆ installed probes (green: good spot, amber: worth a look, red: should move); ○ recommended spots; dashed line: suggested move.</p>` : ""}<div class="legend">${R.blocks ? R.blocks.map((b, bi) => `<span><b style="color:${zoneColor(bi)}">■</b> Block ${escapeHtml(b.name)} · ${fmt(b.ha, 1)} ha · ${R.sensors.filter((s) => s.zone === bi).map((s) => s.name + optTag(s)).join(", ") || "no probe"}</span>`).join("")
   : R.sensors.map((s) => `<span><b style="color:${zoneColor(s.zone)}">■</b> Zone ${s.zone + 1} · ${fmt(s.share * 100, 0)}% · ${s.name}</span>`).join("")}</div>
+${ctx.layout ? `<h2>Irrigation layout</h2>${ctx.layout}<p class="notes">Worked out from the irrigation settings and the blocks: a schematic to agree with the grower, not a survey of the pipes.</p>` : ""}
 ${terrainSection(R, ctx, fine)}
 ${C ? `<h2>Installed probes</h2><div class="wrap"><table><thead><tr><th>Probe</th><th>Latitude</th><th>Longitude</th><th>${R.blocks ? "Block" : "Zone"}</th><th>To border</th><th>Verdict</th><th>Suggestion</th></tr></thead><tbody>${checkRows(R, C, ctx)}</tbody></table></div>
 <h2>Each probe</h2>${C.probes.map((a) => `<section class="s"><h3><span style="background:${["#3f9a52", "#e0a02a", "#d0453a"][a.sev]};border-radius:4px">${a.sev ? "!" : "✓"}</span>${escapeHtml(a.name)} · ${a.verdict}</h3>

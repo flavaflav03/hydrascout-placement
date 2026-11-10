@@ -155,7 +155,7 @@ function elevKey() {
 }
 
 function renderKey() {
-  const body = elevKey() + soilKey() + ndviKey();
+  const body = elevKey() + soilKey() + ndviKey() + layoutKey();
   keyBox.hidden = !body;
   // Folded, the header still shows the lowest and highest ground, so the range is always on the map.
   const ok = ELEV.rows && ELEV.rows.filter(Boolean), d = ELEV.T && ELEV.T.dem.res <= 10 ? 1 : 0;
@@ -210,9 +210,13 @@ async function identify(latlng) {
 
 const ndviLayer = L.layerGroup().addTo(map);
 const reliefLayer = makeReliefLayer(map);
-L.control.layers({ Satellite: sat, Map: osm }, { "Place names": places, "Relief (lidar)": reliefLayer, "Soil type (WRB)": soilLayers.wrb, "Clay content": soilLayers.clay, "NDVI image": ndviLayer }, { position: "topright" }).addTo(map);
+// Irrigation equipment layout (js/layout.js), drawn on a canvas: a drip block can have hundreds of lines.
+// Its own pane, above the block outlines.
+map.createPane("layout").style.zIndex = 420;
+const layoutLayer = L.layerGroup().addTo(map), layoutCanvas = L.canvas({ padding: 0.3, pane: "layout" });
+L.control.layers({ Satellite: sat, Map: osm }, { "Place names": places, "Relief (lidar)": reliefLayer, "Irrigation layout": layoutLayer, "Soil type (WRB)": soilLayers.wrb, "Clay content": soilLayers.clay, "NDVI image": ndviLayer }, { position: "topright" }).addTo(map);
 L.control.scale({ imperial: false }).addTo(map);
-map.on("overlayadd overlayremove", () => { $("soilMap").value = soilOn() || "off"; renderKey(); });
+map.on("overlayadd overlayremove", (e) => { $("soilMap").value = soilOn() || "off"; if (e.layer === layoutLayer) renderLayout(); renderKey(); });
 map.on("moveend", () => { if (!S.field && soilOn() === "wrb") renderKey(); });
 
 const fieldLayer = L.layerGroup().addTo(map);
@@ -253,7 +257,7 @@ function setField(latlngs, { fit = true, example = false, fromBlocks = false, ke
   $("soilLink").href = `https://cartes.gouv.fr/explorer-les-cartes/?c=${c[1].toFixed(5)},${c[0].toFixed(5)}&z=15&l=INRA.CARTE.SOLS$GEOPORTAIL:OGC:WMTS(1)&permalink=yes`;
   $("analyzeBtn").disabled = false;
   if (!example) { store.set("hs.field", latlngs); store.set("hs.fieldFromBlocks", fromBlocks); }
-  roiDefaults(); clipSoil();
+  roiDefaults(); clipSoil(); renderLayout();
 }
 
 // ---------- search ----------
@@ -496,8 +500,8 @@ function finishDraw() {
   if (S.draft.length < 3) return;
   const f = S.draft.slice(), bi = S.mode === "block" ? S.redraw : null;
   setMode(null);
-  if (bi == null) { setField(f, { fit: false }); renderBlockRows(); return; }
-  S.blocks[bi].ring = f; blocksChanged();
+  if (bi == null) { irr.fieldValve = null; setField(f, { fit: false }); renderBlockRows(); return; }
+  S.blocks[bi].ring = f; S.blocks[bi].valve = null; blocksChanged();
 }
 map.on("click", (e) => {
   if (S.mode === "draw" || S.mode === "block") { S.draft.push([e.latlng.lat, e.latlng.lng]); renderDraft(); }
@@ -626,10 +630,11 @@ $("sceneBtn").addEventListener("click", async () => {
 });
 
 // ---------- irrigation ----------
-const irr = { pivotCentre: null };
+const irr = { pivotCentre: null, fieldValve: null };
 function readIrrigation() {
   const type = $("irrType").value, num = (id) => { const v = parseFloat($(id).value); return Number.isFinite(v) && v > 0 ? v : null; };
-  const out = { type, notes: $("irrNotes").value.trim() || null };
+  const out = { type, notes: $("irrNotes").value.trim() || null }, rb = parseFloat($("rowBearing").value);
+  if (["drip", "micro", "sprinkler", "linear", "furrow"].includes(type) && Number.isFinite(rb)) out.rowBearing = ((Math.round(rb) % 180) + 180) % 180;
   if (type === "drip") Object.assign(out, { emitter: num("dripEmitter"), lineSpacing: num("dripLine"), flow: num("dripFlow") });
   if (type === "micro" || type === "sprinkler") out.spacing = num("sprSpacing");
   if (type === "pivot" || type === "linear") out.pivot = { radius: num("pivRadius"), span: num("pivSpan"), lat: irr.pivotCentre && type === "pivot" ? irr.pivotCentre[0] : null, lon: irr.pivotCentre && type === "pivot" ? irr.pivotCentre[1] : null };
@@ -640,7 +645,8 @@ function updateIrrigation() {
   $("irrDrip").hidden = t !== "drip"; $("irrSprinkler").hidden = !(t === "micro" || t === "sprinkler");
   $("irrPivot").hidden = !(t === "pivot" || t === "linear"); $("pivCentreRow").hidden = t !== "pivot";
   $("pivRadiusLbl").textContent = t === "pivot" ? "Pivot radius (length)" : "Machine length";
-  $("irrNotes").hidden = t === "none";
+  $("irrNotes").hidden = t === "none"; $("irrRows").hidden = !["drip", "micro", "sprinkler", "linear", "furrow"].includes(t);
+  $("layoutRow").hidden = $("layoutHint").hidden = t === "none";
   pivotLayer.clearLayers();
   const R = parseFloat($("pivRadius").value);
   if (t === "pivot" && irr.pivotCentre) {
@@ -650,10 +656,131 @@ function updateIrrigation() {
     $("pivCentreInfo").textContent = `Centre ${irr.pivotCentre[0].toFixed(5)}, ${irr.pivotCentre[1].toFixed(5)}${R > 0 ? "" : " · enter the radius"}`;
   } else if (t === "pivot") $("pivCentreInfo").textContent = "Not placed yet.";
   if (S.mode === "pivot" && t !== "pivot") setMode(null);
-  store.set("hs.irrigation", { ...readIrrigation(), pivotCentre: irr.pivotCentre });
+  store.set("hs.irrigation", { ...readIrrigation(), pivotCentre: irr.pivotCentre, fieldValve: irr.fieldValve });
+  renderLayout();
 }
-["irrType", "dripEmitter", "dripLine", "dripFlow", "sprSpacing", "pivRadius", "pivSpan", "irrNotes"].forEach((id) => $(id).addEventListener(id === "irrType" ? "change" : "input", updateIrrigation));
+["irrType", "dripEmitter", "dripLine", "dripFlow", "sprSpacing", "pivRadius", "pivSpan", "irrNotes", "rowBearing"].forEach((id) => $(id).addEventListener(id === "irrType" ? "change" : "input", updateIrrigation));
 $("pivCentreBtn").addEventListener("click", () => setMode(S.mode === "pivot" ? null : "pivot"));
+
+// ---------- irrigation equipment layout ----------
+// Worked out in js/layout.js from the irrigation inputs and the blocks (or the whole field), drawn on the map,
+// in the map key and as a 2D plan (its own window and the report).
+function layoutAreas() {
+  if (S.fieldFromBlocks) return drawnBlocks().map((b) => ({ name: b.name, color: blockColor(b), ring: b.ring, valve: b.valve || null, block: b }));
+  return S.field && !S.isExample ? [{ name: "Field", color: "#ffffff", ring: S.field, valve: irr.fieldValve }] : [];
+}
+const currentLayout = () => buildLayout(layoutAreas(), readIrrigation());
+const LY = { L: null, thin: [] };
+const llOf = (Y, p) => Y.P.inv(p[0], p[1]);
+function renderLayout() {
+  layoutLayer.clearLayers(); LY.L = null; LY.thin = [];
+  const Y = currentLayout();
+  $("valveReset").hidden = !(S.fieldFromBlocks ? drawnBlocks().some((b) => b.valve) : irr.fieldValve);
+  const ri = $("rowInfo");
+  if (ri) ri.textContent = Y && Y.areas.length && Y.areas[0].deg != null
+    ? (Y.areas[0].auto ? `Auto: along the long side of ${S.fieldFromBlocks ? "each block" : "the field"} (${Y.areas.map((a) => `${Y.areas.length > 1 ? a.name + " " : ""}${Math.round(a.deg)}°, ${bearingName(a.deg)}`).join(" · ")}). Type an angle if the rows run another way (0 = north–south, 90 = east–west).`
+      : `Rows ${bearingName(Y.areas[0].deg)}${S.fieldFromBlocks ? " in every block" : ""}. Clear the box to follow ${S.fieldFromBlocks ? "each block's" : "the field's"} long side.`) : "";
+  if (!Y || !map.hasLayer(layoutLayer)) { LY.L = Y; renderKey(); return; }
+  LY.L = Y;
+  const C = LAYOUT_COLORS, z = map.getZoom(), lat = map.getCenter().lat, mpp = (40075016.686 * Math.cos((lat * Math.PI) / 180)) / 2 ** (z + 8);
+  const ll = (p) => llOf(Y, p), line = (pts, o) => L.polyline(pts.map(ll), { renderer: layoutCanvas, interactive: false, ...o }).addTo(layoutLayer);
+  if (Y.pivot) {
+    const { ctr, radius, towers, arm } = Y.pivot;
+    towers.slice(0, -1).forEach((r) => L.circle(ll(ctr), { radius: r, renderer: layoutCanvas, interactive: false, color: "#fff", weight: 1.2, opacity: 0.8, dashArray: "4 4", fill: false }).addTo(layoutLayer));
+    line([ctr, [ctr[0] + arm[0] * radius, ctr[1] + arm[1] * radius]], { color: C.machine, weight: 4 });
+    towers.forEach((r) => L.circleMarker(ll([ctr[0] + arm[0] * r, ctr[1] + arm[1] * r]), { renderer: layoutCanvas, interactive: false, radius: 4, color: C.machine, weight: 2, fillColor: "#fff", fillOpacity: 1 }).addTo(layoutLayer));
+  }
+  Y.areas.forEach((a, ai) => {
+    if (a.machine) {
+      const m = a.machine;
+      L.polygon(m.path.map(ll), { renderer: layoutCanvas, interactive: false, color: C.lateral, weight: 1.5, dashArray: "6 5", fillOpacity: 0.12 }).addTo(layoutLayer);
+      line(m.arrow, { color: "#fff", weight: 2.5, dashArray: "2 6" });
+      line(m.line, { color: C.machine, weight: 4 });
+      m.towers.forEach((p) => L.circleMarker(ll(p), { renderer: layoutCanvas, interactive: false, radius: 4, color: C.machine, weight: 2, fillColor: "#fff", fillOpacity: 1 }).addTo(layoutLayer));
+      return;
+    }
+    if (!a.laterals) return;
+    const furrow = Y.kind === "furrow", sprink = Y.kind === "micro" || Y.kind === "sprinkler";
+    const k = thinStep(a.spacing / mpp, furrow ? 8 : sprink ? 3 : 4); LY.thin[ai] = k;
+    if (sprink && a.headSpacing / mpp >= 14 && a.heads.length <= 5000) a.heads.forEach((h) => L.circle(ll(h), { renderer: layoutCanvas, interactive: false, radius: a.headSpacing, stroke: false, fillColor: C.wet, fillOpacity: 0.07 }).addTo(layoutLayer));
+    const lats = a.laterals.filter((_, i) => i % k === 0).map((l) => [ll(l.a), ll(l.b)]);
+    if (lats.length) L.polyline(lats, { renderer: layoutCanvas, interactive: false, color: furrow ? "#d7ccc8" : C.lateral, weight: k > 1 ? 1 : 1.4, opacity: 0.9 }).addTo(layoutLayer);
+    if (sprink && a.headSpacing / mpp >= 6 && a.heads.length <= 5000) a.heads.forEach((h) => L.circleMarker(ll(h), { renderer: layoutCanvas, interactive: false, radius: 2.5, color: C.head, weight: 1.2, fillColor: "#fff", fillOpacity: 1 }).addTo(layoutLayer));
+    if (a.header.length > 1) { line(a.header, { color: "#fff", weight: 7, opacity: 0.7 }); line(a.header, { color: furrow ? "#8d6e63" : C.header, weight: 4 }); }
+    if (a.feed) line(a.feed, { color: C.header, weight: 3, dashArray: "6 4" });
+    if (a.valve) {
+      const mk = L.marker(ll(a.valve), { draggable: true, title: `Valve of ${a.name === "Field" ? "the field" : `block ${a.name}`}: drag it to its real place`, zIndexOffset: 500,
+        icon: L.divIcon({ className: "", html: `<div class="valve-pin${a.valveSet ? " set" : ""}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] }) }).addTo(layoutLayer);
+      mk.on("dragend", () => { const p = mk.getLatLng(); setValve(a, [p.lat, p.lng]); });
+    }
+  });
+  renderKey();
+}
+function setValve(a, v) {
+  if (a.block) { a.block.valve = v; store.set("hs.blocks", S.blocks); } else irr.fieldValve = v;
+  updateIrrigation();
+}
+$("valveReset").addEventListener("click", () => { S.blocks.forEach((b) => (b.valve = null)); store.set("hs.blocks", S.blocks); irr.fieldValve = null; updateIrrigation(); });
+map.on("zoomend", () => { if (LY.L && map.hasLayer(layoutLayer)) renderLayout(); });
+
+function layoutKey() {
+  const Y = LY.L; if (!Y || !map.hasLayer(layoutLayer)) return "";
+  const items = layoutKeyItems(Y).map(([sym, t]) => `<li>${sym ? `<svg class="ly-sym" viewBox="-1 -8 26 16" aria-hidden="true">${sym}</svg>` : ""}<span>${escapeHtml(t)}</span></li>`).join("");
+  const per = Y.areas.filter((a) => a.laterals || a.machine).map((a) => `<li><span class="sw" style="background:${a.color}"></span><span>${a.name === "Field" ? "Field" : `Block ${escapeHtml(a.name)}`}: ${escapeHtml(layoutAreaText(a, Y))}</span></li>`).join("");
+  const k = Math.max(1, ...LY.thin.filter(Boolean));
+  return `<section><h3>Irrigation layout</h3><ul>${items}</ul>${per ? `<ul>${per}</ul>` : ""}
+    ${k > 1 ? `<p class="note">1 line in ${k} shown at this zoom: zoom in to see them all.</p>` : ""}
+    ${Y.assumed.length ? `<p class="note">Not entered, so assumed: ${escapeHtml(Y.assumed.join(", "))}.</p>` : ""}
+    ${Y.areas.some((a) => a.valve) ? `<p class="note">Drag a valve to its real place.</p>` : ""}
+    <button type="button" class="link" data-act="plan2d">2D plan of the equipment</button></section>`;
+}
+keyBox.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b && b.dataset.act === "plan2d") Plan2D.open(); });
+
+// Probe pins on the plan: the recommended spots, or the installed probes when checking.
+function layoutProbes() {
+  if (appMode() === "check" && S.probes && S.probes.length) return S.probes.map((p, i) => ({ label: String(i + 1), color: "#2f6b45", lat: p.lat, lon: p.lon }));
+  return S.result ? S.result.sensors.map((s, i) => ({ label: String(i + 1), color: zoneColor(s.zone), lat: s.lat, lon: s.lon })) : [];
+}
+function layoutPlan() {
+  const Y = currentLayout(); if (!Y) return "";
+  const name = $("fieldName").value.trim();
+  return layoutSvg(Y, { title: `Irrigation equipment${name ? ` – ${name}` : ""}: ${IRRIGATION_LABELS[Y.kind].toLowerCase()}`, probes: layoutProbes() });
+}
+
+// 2D plan in its own window over the map, to look at or save as an image.
+const Plan2D = {
+  el: null,
+  open() {
+    const svg = layoutPlan();
+    if (!svg) { setStatus(S.field && !S.isExample ? "Choose the irrigation equipment first." : "Draw the blocks (or the field) first.", true); return; }
+    if (!this.el) {
+      const el = this.el = document.createElement("div"); el.className = "view3d plan2d"; el.hidden = true;
+      el.setAttribute("role", "dialog"); el.setAttribute("aria-label", "2D plan of the irrigation equipment");
+      el.innerHTML = `<div class="v3-bar"><b class="v3-title">2D plan of the equipment</b>
+          <button type="button" data-act="png" data-icon="arrowDownBox">PNG</button><button type="button" data-act="svg" data-icon="arrowDownBox">SVG</button>
+          <button type="button" data-act="close" data-icon="cross">Close</button></div>
+        <div class="p2-stage"></div>`;
+      decorateIcons(el); $("mapwrap").appendChild(el);
+      el.addEventListener("click", (e) => { const a = e.target.closest("button") && e.target.closest("button").dataset.act; if (a === "close") this.close(); if (a === "svg") this.save("svg"); if (a === "png") this.save("png"); });
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !el.hidden) this.close(); });
+    }
+    this.svg = svg; this.el.querySelector(".p2-stage").innerHTML = svg; this.el.hidden = false;
+    if (window.innerWidth <= 760) $("mapwrap").scrollIntoView({ behavior: "smooth" });
+  },
+  close() { if (this.el) this.el.hidden = true; },
+  save(kind) {
+    const name = `hydrascout-${slug($("fieldName").value.trim()) || "field"}-irrigation-${stamp()}`;
+    if (kind === "svg") { download(`${name}.svg`, "image/svg+xml", this.svg); return; }
+    const img = new Image(), url = URL.createObjectURL(new Blob([this.svg], { type: "image/svg+xml" }));
+    img.onload = () => {
+      const k = 2, c = document.createElement("canvas"); c.width = img.width * k; c.height = img.height * k;
+      const g = c.getContext("2d"); g.scale(k, k); g.drawImage(img, 0, 0); URL.revokeObjectURL(url);
+      c.toBlob((b) => { const u = URL.createObjectURL(b), a = document.createElement("a"); a.href = u; a.download = `${name}.png`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 2000); });
+    };
+    img.src = url;
+  },
+};
+$("layoutBtn").addEventListener("click", () => Plan2D.open());
 
 // ---------- irrigation blocks ----------
 // HSTI sizes a probe kit as one probe per irrigation block, so blocks drive the number and place of the probes.
@@ -699,7 +826,7 @@ function renderBlocks() {
   if (n) sel.value = "auto";
   $("autoOpt").textContent = n ? `One per irrigation block (${n})` : "Auto (by field size)";
   store.set("hs.blocks", S.blocks);
-  renderNeed(); roiDefaults(); clipSoil();
+  renderNeed(); roiDefaults(); clipSoil(); renderLayout();
 }
 function renderBlockRows() {
   const n = drawnBlocks().length, total = S.blocks.length, next = S.blocks.findIndex((b) => !b.ring);
@@ -751,8 +878,7 @@ $("nBlocks").addEventListener("input", () => {
 $("blockList").addEventListener("input", (e) => {
   const i = e.target.dataset.i; if (i == null) return;
   const b = S.blocks[+i]; b.name = e.target.value.trim() || nextBlockName(); clearResult(); store.set("hs.blocks", S.blocks);
-  if (b.ring) blockLayer.getLayers()[drawnBlocks().indexOf(b)].setTooltipContent(escapeHtml(b.name));
-  renderKey();
+  const body = elevKey() + soilKey() + ndviKey() + layoutKey();
 });
 $("blockList").addEventListener("click", (e) => {
   if (e.target.dataset.field) { setMode(S.mode === "draw" ? null : "draw"); if (S.mode && window.innerWidth <= 760) $("mapwrap").scrollIntoView({ behavior: "smooth" }); return; }
@@ -1155,7 +1281,7 @@ document.querySelector(".tabs").addEventListener("click", (e) => { const t = e.t
 $("toRoi").addEventListener("click", () => { showTab("roi"); $("panel").scrollTop = 0; $("roiStep").scrollIntoView({ behavior: "smooth" }); });
 
 // ---------- exports ----------
-const exportCtx = () => ({ field: S.field, fieldName: $("fieldName").value.trim(), askedBlocks: askedBlocks(), roi: computeRoi(readRoi()),
+const exportCtx = () => ({ field: S.field, fieldName: $("fieldName").value.trim(), askedBlocks: askedBlocks(), roi: computeRoi(readRoi()), layout: layoutPlan(),
   snapshot: () => View3D.snapshot(view3dOpts()) });
 $("dlReport").onclick = () => S.result && openReport(S.result, exportCtx());
 $("dlReportRoi").onclick = () => { if (S.check) openReport(S.result, checkCtx()); else if (S.result) openReport(S.result, exportCtx()); else { showTab("place"); setStatus("Find the sensor spots (or check your probes) first, then open the report."); } };
@@ -1182,12 +1308,13 @@ $("dlGeo").onclick = () => S.result && exportGeoJson(S.result, exportCtx());
     if (si.emitter) $("dripEmitter").value = si.emitter; if (si.lineSpacing) $("dripLine").value = si.lineSpacing; if (si.flow) $("dripFlow").value = si.flow;
     if (si.spacing) $("sprSpacing").value = si.spacing;
     if (si.pivot) { if (si.pivot.radius) $("pivRadius").value = si.pivot.radius; if (si.pivot.span) $("pivSpan").value = si.pivot.span; }
-    irr.pivotCentre = si.pivotCentre || null;
+    irr.pivotCentre = si.pivotCentre || null; irr.fieldValve = si.fieldValve || null;
+    if (si.rowBearing != null) $("rowBearing").value = si.rowBearing;
   }
   updateIrrigation();
   const nb = store.get("hs.nBlocks"); if (nb >= 1) $("nBlocks").value = nb;
   const sb = store.get("hs.blocks");
-  if (Array.isArray(sb)) S.blocks = sb.filter((b) => b && typeof b.name === "string").map((b) => ({ name: b.name, ring: Array.isArray(b.ring) && b.ring.length >= 3 ? b.ring : null }));
+  if (Array.isArray(sb)) S.blocks = sb.filter((b) => b && typeof b.name === "string").map((b) => ({ name: b.name, ring: Array.isArray(b.ring) && b.ring.length >= 3 ? b.ring : null, valve: Array.isArray(b.valve) ? b.valve : null }));
   if (S.blocks.length && !askedBlocks()) $("nBlocks").value = S.blocks.length;
   syncBlockRows();
   syncFieldToBlocks(); // drawn blocks always define the field (older saves could keep a separate outline)
