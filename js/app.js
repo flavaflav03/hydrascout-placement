@@ -296,8 +296,8 @@ $("searchForm").addEventListener("submit", async (e) => {
 // position in the URL hash: #device=<serial>&lat=…&lng=…&seen=…&product=… (or &error=notfound|nogps).
 // HSTI Logger Overview. On placement.coccinelia.com the VPS also passes the logger's login and /api/devices
 // through the same address, so the lookup stays on this origin and uses the logger's login cookie.
-const LOGGER_HOSTS = ["placement.coccinelia.com", "srv2118288.hstgr.cloud"];
-const LOGGER_URL = LOGGER_HOSTS.includes(location.hostname) ? location.origin : "https://srv2118288.hstgr.cloud";
+const LOGGER_HOSTS = ["placement.coccinelia.com", "logger.coccinelia.com"];
+const LOGGER_URL = LOGGER_HOSTS.includes(location.hostname) ? location.origin : "https://logger.coccinelia.com";
 const loggerUrl = () => (LOGGER_URL || store.get("hs.loggerUrl") || "").replace(/\/+$/, "");
 $("loggerCfg").hidden = !!loggerUrl();
 // Device lookup is only for "Check probes already installed" (a new customer has no device yet): a list of serials,
