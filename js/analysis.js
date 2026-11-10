@@ -36,17 +36,19 @@ function solve3(A, b) {
 }
 
 // Smoothed elevation, slope (%) from a local plane fit, and relative position (negative = hollow, positive = rise).
-function terrain(G, elev) {
-  const pts = G.pts, sp = G.spacing;
-  const sig = Math.max(sp, 45), nS = neighbours(pts, 2 * sig);
+// res: metres per point of the elevation model. A fine (lidar) model needs little smoothing and shows hollows and
+// rises over a few tens of metres; the 90 m model needs heavy smoothing.
+function terrain(G, elev, res = 90) {
+  const pts = G.pts, sp = G.spacing, fine = res <= 10;
+  const sig = Math.max(sp, fine ? 10 : 45), nS = neighbours(pts, 2 * sig);
   const es = pts.map((p, i) => { let s = 0, w = 0; for (const [j, d] of nS[i]) { if (elev[j] == null) continue; const k = Math.exp(-(d * d) / (2 * sig * sig)); s += k * elev[j]; w += k; } return w ? s / w : elev[i]; });
-  const R = Math.max(2 * sp, 90), nR = neighbours(pts, R);
+  const R = Math.max(2 * sp, fine ? 25 : 90), nR = neighbours(pts, R);
   const slope = pts.map((p, i) => {
     const A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], b = [0, 0, 0];
     for (const [j] of nR[i]) { const v = [pts[j].x - p.x, pts[j].y - p.y, 1]; for (let r = 0; r < 3; r++) { b[r] += v[r] * es[j]; for (let c = 0; c < 3; c++) A[r][c] += v[r] * v[c]; } }
     const s = nR[i].length >= 4 ? solve3(A, b) : null; return s ? 100 * Math.hypot(s[0], s[1]) : 0;
   });
-  const nT = neighbours(pts, Math.max(3 * sp, 150));
+  const nT = neighbours(pts, Math.max(3 * sp, fine ? 60 : 150));
   const tpi = pts.map((p, i) => es[i] - mean(nT[i].map(([j]) => es[j])));
   return { elev: es, slope, tpi };
 }
@@ -96,10 +98,10 @@ function pivotAt(G, irr) {
 }
 function pivotInfo(G, irr) { const at = pivotAt(G, irr); return at && G.pts.map((p) => at(p.x, p.y)); }
 
-// inputs: { G, elev, soilSamples, ndvi, irrigation, request ("auto" or number), buffer }
+// inputs: { G, elev, elevInfo ({ label, res, relief }), soilSamples, ndvi, irrigation, request ("auto" or number), buffer }
 function computePlacement(inp) {
   const { G } = inp, pts = G.pts, ha = G.area / 10000, notes = [];
-  const T = terrain(G, inp.elev);
+  const T = terrain(G, inp.elev, inp.elevInfo ? inp.elevInfo.res : 90);
 
   let soil = null;
   if (inp.soilSamples && inp.soilSamples.length) {
@@ -205,7 +207,7 @@ function computePlacement(inp) {
     return { main, other, text: `about ${fmt((other.length / idx.length) * 100, 0)}% of the block differs from the rest${parts.length ? `: ${parts.join(", ")}` : ""}` };
   }
 
-  const R = { G, pts, lab, T, soil, ndvi, ndviInfo: ndvi ? inp.ndvi : null, piv, irrigation: inp.irrigation, sensors, ha, notes, buffer, k, blocks, edgeAt, X, featDims };
+  const R = { G, pts, lab, T, elevInfo: inp.elevInfo || null, soil, ndvi, ndviInfo: ndvi ? inp.ndvi : null, piv, irrigation: inp.irrigation, sensors, ha, notes, buffer, k, blocks, edgeAt, X, featDims };
   describe(R);
   return R;
 }
@@ -268,7 +270,9 @@ function describe(R) {
     s.lat = p.lat; s.lon = p.lon; s.why = why; s.tip = R.piv && !R.piv[s.i].under ? null : tip; s.edge = R.edgeAt[s.i]; s.name = `HS-${R.sensors.indexOf(s) + 1}`;
   }
   if (R.summary.flat && R.sensors.length > 1 && !R.soil && !R.ndvi) R.notes.push("This field looks uniform with the available data, so the spots are mainly spread out to cover it. Adding NDVI usually reveals more useful differences.");
-  R.notes.push("Elevation comes from a 90 m model and soil from 250 m estimates. They show broad patterns, not plot-level detail. NDVI (10 m) sharpens the result.");
+  R.notes.push(R.elevInfo && R.elevInfo.res <= 10
+    ? `Elevation comes from a lidar terrain model (${R.elevInfo.label}, about ${Math.max(1, Math.round(R.elevInfo.res))} m), so slopes, hollows and rises are accurate to the plot. Soil comes from 250 m estimates and shows broad patterns only; NDVI (10 m) sharpens the result.`
+    : `Elevation comes from a ${R.elevInfo ? `${Math.round(R.elevInfo.res)} m model (${R.elevInfo.label})` : "90 m model"} and soil from 250 m estimates. They show broad patterns, not plot-level detail. NDVI (10 m) sharpens the result.`);
   R.notes.push("On site: install in the crop row away from wheel tracks, headlands, trees and drains, and note the exact position once installed.");
 }
 

@@ -107,6 +107,50 @@ function fillGaps(a, w, h) {
   return a;
 }
 
+// Terrain around a set of [lat, lon] points (the blocks or the field), cached so the analysis, the 3D view and the
+// report share one download: { box, P, W, H, dem }.
+const DEM_CACHE = new Map();
+function demForPoints(pts) {
+  const box = View3D.box(pts), key = box.map((v) => v.toFixed(6)).join(",");
+  if (!DEM_CACHE.has(key)) DEM_CACHE.set(key, (async () => {
+    const P = makeProj((box[0] + box[2]) / 2, (box[1] + box[3]) / 2);
+    const [wm] = P.fwd(box[0], box[3]), [, hm] = P.fwd(box[2], box[1]);
+    const W = 2 * Math.abs(wm), H = 2 * Math.abs(hm);
+    // About 1 m per cell for small fields, at most 320 cells a side.
+    const res = Math.max(1, Math.max(W, H) / 320), gw = Math.max(16, Math.round(W / res) + 1), gh = Math.max(16, Math.round(H / res) + 1);
+    return { box, P, W, H, dem: await fetchDem(box, gw, gh, res) };
+  })().catch((err) => { DEM_CACHE.delete(key); throw err; }));
+  return DEM_CACHE.get(key);
+}
+
+// Ground height at a point: mean of the cells within about 2 m, so a single noisy cell does not count.
+function demSample(T, lat, lon) {
+  const { box: [s, w, n, e], dem } = T, fi = ((lon - w) / (e - w)) * (dem.w - 1), fj = ((n - lat) / (n - s)) * (dem.h - 1);
+  const r = Math.max(0, Math.round(2 / dem.res)), ci = Math.round(fi), cj = Math.round(fj); let sum = 0, c = 0;
+  for (let j = cj - r; j <= cj + r; j++) for (let i = ci - r; i <= ci + r; i++) {
+    if (i < 0 || j < 0 || i >= dem.w || j >= dem.h) continue; const v = dem.data[j * dem.w + i]; if (v === v) { sum += v; c++; }
+  }
+  return c ? sum / c : null;
+}
+
+// Lowest and highest ground in each ring, from every terrain cell inside it: [{ lo, hi }].
+function ringRelief(T, rings) {
+  const { box: [s, w, n, e], dem } = T;
+  return rings.map((ring) => {
+    const xy = ring.map((p) => [p[1], p[0]]), [x0, x1] = minMax(xy.map((p) => p[0])), [y0, y1] = minMax(xy.map((p) => p[1]));
+    let lo = Infinity, hi = -Infinity;
+    for (let j = 0; j < dem.h; j++) {
+      const lat = n - ((n - s) * j) / (dem.h - 1); if (lat < y0 || lat > y1) continue;
+      for (let i = 0; i < dem.w; i++) {
+        const lon = w + ((e - w) * i) / (dem.w - 1); if (lon < x0 || lon > x1 || !inPoly(lon, lat, xy)) continue;
+        const v = dem.data[j * dem.w + i]; if (v < lo) lo = v; if (v > hi) hi = v;
+      }
+    }
+    return lo <= hi ? { lo, hi } : null;
+  });
+}
+const demLabel = (dem) => `${dem.source}, ${dem.res < 2 ? "about 1 m" : `about ${Math.round(dem.res)} m`} per point`;
+
 // ---------- 3D view ----------
 function loadScript(src) {
   return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error("could not load the 3D engine")); document.head.appendChild(s); });
@@ -124,19 +168,14 @@ const View3D = {
     this.say("Loading the terrain…");
     try {
       if (!window.THREE) await (this.engine = this.engine || loadScript(THREE_URL).catch((err) => { this.engine = null; throw err; }));
-      const box = this.box(opts.rings.flatMap((r) => r.ring));
-      const P = makeProj((box[0] + box[2]) / 2, (box[1] + box[3]) / 2);
-      const [wm] = P.fwd(box[0], box[3]), [, hm] = P.fwd(box[2], box[1]);
-      const W = 2 * Math.abs(wm), H = 2 * Math.abs(hm);
-      // About 1 m per cell for small fields, at most 320 cells a side.
-      const res = Math.max(1, Math.max(W, H) / 320), gw = Math.max(16, Math.round(W / res) + 1), gh = Math.max(16, Math.round(H / res) + 1);
-      const dem = await fetchDem(box, gw, gh, res);
+      const T = await demForPoints(opts.rings.flatMap((r) => r.ring));
       if (tok !== this.token) return;
       this.say("Loading the satellite image…");
-      const sat = await this.imagery(box).catch((err) => { console.warn("3D imagery", err); return null; });
+      const sat = await this.imagery(T.box).catch((err) => { console.warn("3D imagery", err); return null; });
       if (tok !== this.token) return;
-      this.build({ box, P, W, H, dem, sat });
+      this.build({ ...T, sat });
       this.say("");
+      return true;
     } catch (err) {
       console.error(err);
       if (tok === this.token) this.say(`The 3D view could not load (${err.message}). Check the connection and try again.`, true);
@@ -287,23 +326,30 @@ const View3D = {
 
   // Elevation and relief of each block, from the lidar grid.
   stats() {
-    const { box: [s, w, n, e], dem } = this.built, { source, res } = dem, o = this.opts;
-    const rows = o.rings.map((r) => {
-      const xy = r.ring.map((p) => [p[1], p[0]]), [x0, x1] = minMax(xy.map((p) => p[0])), [y0, y1] = minMax(xy.map((p) => p[1]));
-      let lo = Infinity, hi = -Infinity;
-      for (let j = 0; j < dem.h; j++) {
-        const lat = n - ((n - s) * j) / (dem.h - 1); if (lat < y0 || lat > y1) continue;
-        for (let i = 0; i < dem.w; i++) {
-          const lon = w + ((e - w) * i) / (dem.w - 1); if (lon < x0 || lon > x1 || !inPoly(lon, lat, xy)) continue;
-          const v = dem.data[j * dem.w + i]; if (v < lo) lo = v; if (v > hi) hi = v;
-        }
-      }
-      return lo <= hi ? `<span><i style="background:${r.color}"></i>${escapeHtml(r.name)}: ${fmt(lo, 1)}–${fmt(hi, 1)} m <b>(${fmt(hi - lo, 1)} m difference)</b></span>` : "";
-    }).join("");
-    this.el.querySelector(".v3-stats").innerHTML = rows;
-    this.el.querySelector(".v3-src").textContent = `Terrain: ${source}, ${res < 2 ? "about 1 m" : `about ${Math.round(res)} m`} per point · imagery Esri`;
-    const lo = this.built.lo, hi = this.built.hi;
-    this.el.querySelector(".v3-scale").innerHTML = `<span>${fmt(lo, 0)} m</span><i style="background:linear-gradient(90deg,${HEIGHT_STOPS.map(([t, c]) => `rgb(${c}) ${t * 100}%`).join(",")})"></i><span>${fmt(hi, 0)} m</span>`;
+    const B = this.built, o = this.opts, rel = ringRelief(B, o.rings.map((r) => r.ring));
+    this.el.querySelector(".v3-stats").innerHTML = o.rings.map((r, k) => rel[k]
+      ? `<span><i style="background:${r.color}"></i>${escapeHtml(r.name)}: ${fmt(rel[k].lo, 1)}–${fmt(rel[k].hi, 1)} m <b>(${fmt(rel[k].hi - rel[k].lo, 1)} m difference)</b></span>` : "").join("");
+    this.el.querySelector(".v3-src").textContent = `Terrain: ${demLabel(B.dem)} · imagery Esri`;
+    this.el.querySelector(".v3-scale").innerHTML = `<span>${fmt(B.lo, 0)} m</span><i style="background:linear-gradient(90deg,${HEIGHT_STOPS.map(([t, c]) => `rgb(${c}) ${t * 100}%`).join(",")})"></i><span>${fmt(B.hi, 0)} m</span>`;
+  },
+
+  // A still picture of the blocks in 3D for the report (satellite, relief ×3, seen from the south-west), as a PNG
+  // data URL, or null when the terrain or imagery cannot be loaded.
+  async snapshot(opts) {
+    this.ui();
+    const el = this.el, wasHidden = el.hidden;
+    el.style.visibility = "hidden"; el.hidden = false;
+    try {
+      el.querySelector(".v3-exag").value = "3";
+      el.querySelectorAll(".v3-drape button").forEach((b) => b.classList.toggle("active", b.dataset.k === "sat"));
+      if (!(await this.open(opts)) || !this.built) return null;
+      const B = this.built; if (!B.sat) return null;
+      this.reset(); cancelAnimationFrame(this.frame); this.frame = 0;
+      B.renderer.setPixelRatio(1); B.renderer.setSize(1200, 760, false); B.camera.aspect = 1200 / 760; B.camera.updateProjectionMatrix();
+      this.camera(); B.renderer.render(B.scene, B.camera);
+      return B.renderer.domElement.toDataURL("image/jpeg", 0.85);
+    } catch (err) { console.warn("3D snapshot", err); return null; }
+    finally { this.close(); el.style.visibility = ""; el.hidden = wasHidden; }
   },
 
   camera() {
