@@ -111,10 +111,56 @@ async function loadSoilHere() {
   renderKey();
 }
 
+// Lowest and highest ground of the field, or of each drawn block, from the lidar terrain model (the same download the
+// analysis and the 3D view use). Shown in the map key whenever there is a field, so it stays on the map.
+const ELEV = { for: null, rows: null, T: null, err: null };
+function elevRings() {
+  if (!S.field) return [];
+  return S.fieldFromBlocks ? drawnBlocks().map((b) => ({ name: `Block ${b.name}`, color: blockColor(b), ring: b.ring }))
+    : [{ name: S.isExample ? "Example field" : "Field", color: null, ring: S.field }];
+}
+async function loadElev(rings) {
+  const id = JSON.stringify(rings.map((r) => r.ring));
+  if (ELEV.for === id) return;
+  ELEV.for = id; ELEV.rows = null; ELEV.T = null; ELEV.err = null;
+  try {
+    const T = await demForPoints(rings.flatMap((r) => r.ring)), rel = ringRelief(T, rings.map((r) => r.ring));
+    if (ELEV.for !== id) return;
+    ELEV.T = T; ELEV.rows = rel;
+  } catch (err) {
+    if (ELEV.for !== id) return;
+    console.warn("elevation key", err); ELEV.err = "Could not load the terrain model here."; ELEV.for = null;
+  }
+  renderKey();
+}
+function elevKey() {
+  const rings = elevRings(); if (!rings.length) return "";
+  loadElev(rings);
+  if (!ELEV.rows) return `<section><h3>Elevation</h3><p class="note">${ELEV.err ? escapeHtml(ELEV.err) : "Loading the lidar terrain model…"}</p></section>`;
+  const dem = ELEV.T.dem, d = dem.res <= 10 ? 1 : 0, ok = ELEV.rows.filter(Boolean);
+  if (!ok.length) return "";
+  const lo = Math.min(...ok.map((r) => r.lo)), hi = Math.max(...ok.map((r) => r.hi)), span = hi - lo || 1;
+  const pos = (v) => `${(((v - lo) / span) * 100).toFixed(1)}%`;
+  // One row per block: its own range, and where that range sits between the lowest and highest point of all blocks.
+  const rows = rings.length > 1 ? `<ul class="elev">${rings.map((r, i) => {
+    const e = ELEV.rows[i];
+    if (!e) return `<li>${swatch(r.color)}<span class="nm">${escapeHtml(r.name)}</span><span class="rng">no data</span></li>`;
+    return `<li>${swatch(r.color)}<span class="nm">${escapeHtml(r.name)}</span><span class="rng">${fmt(e.lo, d)}–${fmt(e.hi, d)} m</span>
+      <span class="track"><span style="left:${pos(e.lo)};width:max(3px, calc(${pos(e.hi)} - ${pos(e.lo)}));background:${r.color}"></span></span></li>`;
+  }).join("")}</ul>` : "";
+  return `<section><h3>Elevation</h3>
+    <div class="elev-mm"><span><small>Lowest</small><b>${fmt(lo, d)} m</b></span><span><small>Highest</small><b>${fmt(hi, d)} m</b></span><span><small>Difference</small><b>${fmt(hi - lo, d)} m</b></span></div>
+    ${rows}
+    <p class="note">${rings.length > 1 ? "Across the drawn blocks. " : ""}${escapeHtml(demLabel(dem))}. Tap the map to read the height at a spot.</p></section>`;
+}
+
 function renderKey() {
-  const body = soilKey() + ndviKey();
+  const body = elevKey() + soilKey() + ndviKey();
   keyBox.hidden = !body;
-  if (body) keyBox.innerHTML = `<button type="button" class="fold" data-act="fold" aria-expanded="${KEY.open}">Map key${icon(KEY.open ? "chevronDown" : "chevronRight")}</button>${KEY.open ? `<div class="key-body">${body}</div>` : ""}`;
+  // Folded, the header still shows the lowest and highest ground, so the range is always on the map.
+  const ok = ELEV.rows && ELEV.rows.filter(Boolean), d = ELEV.T && ELEV.T.dem.res <= 10 ? 1 : 0;
+  const mm = ok && ok.length ? `<span class="mm">${fmt(Math.min(...ok.map((r) => r.lo)), d)}–${fmt(Math.max(...ok.map((r) => r.hi)), d)} m</span>` : "";
+  if (body) keyBox.innerHTML = `<button type="button" class="fold" data-act="fold" aria-expanded="${KEY.open}"><span>Map key${KEY.open ? "" : mm}</span>${icon(KEY.open ? "chevronDown" : "chevronRight")}</button>${KEY.open ? `<div class="key-body">${body}</div>` : ""}`;
   liftKey();
 }
 // On a narrow map the attribution wraps across the full width: lift the bottom-left controls above it.
@@ -139,6 +185,9 @@ function soilAt(latlng) {
 async function identify(latlng) {
   const nd = S.ndvi && S.ndvi.overlay ? S.ndvi : null;
   const lines = [];
+  const T = ELEV.T, inBox = T && latlng.lat >= T.box[0] && latlng.lat <= T.box[2] && latlng.lng >= T.box[1] && latlng.lng <= T.box[3];
+  const h = inBox ? demSample(T, latlng.lat, latlng.lng) : null;
+  if (h != null) lines.push(`Elevation <b>${fmt(h, T.dem.res <= 10 ? 1 : 0)} m</b>`);
   if (nd) {
     const v = sampleRaster(nd, latlng.lat, latlng.lng, 0);
     lines.push(v == null ? "NDVI: no value here (outside the field or under cloud)" : `${swatch(ndviColour(v))} NDVI <b>${fmt(v, 2)}</b>: ${ndviBand(v)[2].toLowerCase()}`);
@@ -703,6 +752,7 @@ $("blockList").addEventListener("input", (e) => {
   const i = e.target.dataset.i; if (i == null) return;
   const b = S.blocks[+i]; b.name = e.target.value.trim() || nextBlockName(); clearResult(); store.set("hs.blocks", S.blocks);
   if (b.ring) blockLayer.getLayers()[drawnBlocks().indexOf(b)].setTooltipContent(escapeHtml(b.name));
+  renderKey();
 });
 $("blockList").addEventListener("click", (e) => {
   if (e.target.dataset.field) { setMode(S.mode === "draw" ? null : "draw"); if (S.mode && window.innerWidth <= 760) $("mapwrap").scrollIntoView({ behavior: "smooth" }); return; }
