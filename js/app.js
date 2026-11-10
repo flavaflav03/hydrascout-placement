@@ -730,7 +730,7 @@ $("irrType").addEventListener("change", renderRoots);
 
 // ---------- irrigation equipment layout ----------
 // Worked out in js/layout.js from the irrigation inputs and the blocks (or the whole field), drawn on the map,
-// in the map key and as a 2D plan (its own window and the report).
+// and in the map key.
 function layoutAreas() {
   if (S.fieldFromBlocks) return drawnBlocks().map((b) => ({ name: b.name, color: blockColor(b), ring: b.ring, valve: b.valve || null, block: b }));
   return S.field && !S.isExample ? [{ name: "Field", color: "#ffffff", ring: S.field, valve: irr.fieldValve }] : [];
@@ -797,60 +797,55 @@ function layoutKey() {
   return `<section><h3>Irrigation layout</h3><ul>${items}</ul>${per ? `<ul>${per}</ul>` : ""}
     ${k > 1 ? `<p class="note">1 line in ${k} shown at this zoom: zoom in to see them all.</p>` : ""}
     ${Y.assumed.length ? `<p class="note">Not entered, so assumed: ${escapeHtml(Y.assumed.join(", "))}.</p>` : ""}
-    ${Y.areas.some((a) => a.valve) ? `<p class="note">Drag a valve to its real place.</p>` : ""}
-    <button type="button" class="link" data-act="plan2d">2D plan of the equipment</button></section>`;
-}
-keyBox.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b && b.dataset.act === "plan2d") Plan2D.open("plan"); });
-
-// Probe pins on the plan: the recommended spots, or the installed probes when checking.
-function layoutProbes() {
-  if (appMode() === "check" && S.probes && S.probes.length) return S.probes.map((p, i) => ({ label: String(i + 1), color: "#0380B8", lat: p.lat, lon: p.lon }));
-  return S.result ? S.result.sensors.map((s, i) => ({ label: String(i + 1), color: zoneColor(s.zone), lat: s.lat, lon: s.lon })) : [];
-}
-function layoutPlan() {
-  const Y = currentLayout(); if (!Y) return "";
-  const name = $("fieldName").value.trim();
-  return layoutSvg(Y, { title: `Irrigation equipment${name ? ` – ${name}` : ""}: ${IRRIGATION_LABELS[Y.kind].toLowerCase()}`, probes: layoutProbes() });
+    ${Y.areas.some((a) => a.valve) ? `<p class="note">Drag a valve to its real place.</p>` : ""}</section>`;
 }
 
 // Cross-section: crop and roots (crop step), irrigation, probe and sensors (js/section.js).
+// The soil texture shapes the wetted bulbs: the analysis grid's average when there is one, otherwise one
+// SoilGrids reading at the field centre (fetched once per place, then the drawing is redrawn).
+const SEC = { tex: null, for: null };
+function sectionSoil() {
+  const R = S.result;
+  if (R && R.soil) return { tex: { clay: mean(R.soil.clay), sand: mean(R.soil.sand), silt: mean(R.soil.silt) }, src: "field average from SoilGrids" };
+  if (!S.field || S.isExample) return { tex: null };
+  const c = centroidLatLng(S.field), id = `${c[0].toFixed(3)},${c[1].toFixed(3)}`;
+  if (SEC.for !== id) {
+    SEC.for = id; SEC.tex = null;
+    fetchSoil(c[0], c[1]).then((t) => { if (SEC.for !== id) return; SEC.tex = t; if (Plan2D.el && !Plan2D.el.hidden) Plan2D.open(); })
+      .catch(() => { if (SEC.for === id) SEC.for = null; });
+  }
+  return { tex: SEC.tex, src: "SoilGrids at the field centre" };
+}
 function sectionPlan() {
   const x = currentRoots(), irrg = readIrrigation();
   if (!x && irrg.type === "none") return "";
-  const name = $("fieldName").value.trim(), D = sectionData(x ? { ...x, cropKey: $("crop").value } : null, irrg);
+  const so = sectionSoil(), name = $("fieldName").value.trim(), D = sectionData(x ? { ...x, cropKey: $("crop").value } : null, irrg, so.tex, so.src);
   return sectionSvg(D, { title: `Cross-section${name ? ` – ${name}` : ""}: ${[D.crop, D.kind !== "none" ? IRRIGATION_LABELS[D.kind].toLowerCase() : "not irrigated"].filter(Boolean).join(", ")}` });
 }
 
-// 2D plan or cross-section in its own window over the map, to look at or save as an image.
+// Cross-section in its own window over the map, to look at or save as an image.
 const Plan2D = {
-  el: null, view: "plan",
-  open(view = this.view) {
-    this.view = view;
-    const svg = view === "section" ? sectionPlan() : layoutPlan();
-    if (!svg) {
-      if (view === "section") setStatus("Pick the crop (under “Crop and root depth”) or the irrigation equipment first.", true);
-      else setStatus(S.field && !S.isExample ? "Choose the irrigation equipment first." : "Draw the blocks (or the field) first.", true);
-      return;
-    }
+  el: null,
+  open() {
+    const svg = sectionPlan();
+    if (!svg) { setStatus("Pick the crop (under “Crop and root depth”) or the irrigation equipment first.", true); return; }
     if (!this.el) {
       const el = this.el = document.createElement("div"); el.className = "view3d plan2d"; el.hidden = true;
-      el.setAttribute("role", "dialog"); el.setAttribute("aria-label", "2D plan of the irrigation equipment");
-      el.innerHTML = `<div class="v3-bar"><b class="v3-title">Irrigation drawings</b>
-          <span class="seg" role="group" aria-label="Drawing"><button type="button" data-act="plan">Plan</button><button type="button" data-act="section">Cross-section</button></span>
+      el.setAttribute("role", "dialog"); el.setAttribute("aria-label", "Cross-section of the crop, roots, irrigation and probe");
+      el.innerHTML = `<div class="v3-bar"><b class="v3-title">Cross-section</b>
           <button type="button" data-act="png" data-icon="arrowDownBox">PNG</button><button type="button" data-act="svg" data-icon="arrowDownBox">SVG</button>
           <button type="button" data-act="close" data-icon="cross">Close</button></div>
         <div class="p2-stage"></div>`;
       decorateIcons(el); $("mapwrap").appendChild(el);
-      el.addEventListener("click", (e) => { const a = e.target.closest("button") && e.target.closest("button").dataset.act; if (a === "close") this.close(); if (a === "svg") this.save("svg"); if (a === "png") this.save("png"); if (a === "plan" || a === "section") this.open(a); });
+      el.addEventListener("click", (e) => { const a = e.target.closest("button") && e.target.closest("button").dataset.act; if (a === "close") this.close(); if (a === "svg") this.save("svg"); if (a === "png") this.save("png"); });
       document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !el.hidden) this.close(); });
     }
     this.svg = svg; this.el.querySelector(".p2-stage").innerHTML = svg; this.el.hidden = false;
-    this.el.querySelectorAll(".seg button").forEach((b) => b.classList.toggle("active", b.dataset.act === view));
     if (window.innerWidth <= 760) $("mapwrap").scrollIntoView({ behavior: "smooth" });
   },
   close() { if (this.el) this.el.hidden = true; },
   save(kind) {
-    const name = `hydrascout-${slug($("fieldName").value.trim()) || "field"}-${this.view === "section" ? "cross-section" : "irrigation"}-${stamp()}`;
+    const name = `hydrascout-${slug($("fieldName").value.trim()) || "field"}-cross-section-${stamp()}`;
     if (kind === "svg") { download(`${name}.svg`, "image/svg+xml", this.svg); return; }
     const img = new Image(), url = URL.createObjectURL(new Blob([this.svg], { type: "image/svg+xml" }));
     img.onload = () => {
@@ -861,9 +856,8 @@ const Plan2D = {
     img.src = url;
   },
 };
-$("layoutBtn").addEventListener("click", () => Plan2D.open("plan"));
-$("sectionBtn").addEventListener("click", () => Plan2D.open("section"));
-$("sectionBtnCrop").addEventListener("click", () => Plan2D.open("section"));
+$("sectionBtn").addEventListener("click", () => Plan2D.open());
+$("sectionBtnCrop").addEventListener("click", () => Plan2D.open());
 
 // ---------- irrigation blocks ----------
 // HSTI sizes a probe kit as one probe per irrigation block, so blocks drive the number and place of the probes.
@@ -1365,7 +1359,7 @@ document.querySelector(".tabs").addEventListener("click", (e) => { const t = e.t
 $("toRoi").addEventListener("click", () => { showTab("roi"); $("panel").scrollTop = 0; $("roiStep").scrollIntoView({ behavior: "smooth" }); });
 
 // ---------- exports ----------
-const exportCtx = () => ({ roots: currentRoots(), field: S.field, fieldName: $("fieldName").value.trim(), askedBlocks: askedBlocks(), roi: computeRoi(readRoi()), layout: layoutPlan(), section: sectionPlan(),
+const exportCtx = () => ({ roots: currentRoots(), field: S.field, fieldName: $("fieldName").value.trim(), askedBlocks: askedBlocks(), roi: computeRoi(readRoi()), section: sectionPlan(),
   ndvi: S.ndvi && S.ndvi.overlay ? { ...S.ndvi.overlay, label: S.ndvi.label, scale: ndviScale() } : null,
   snapshot: () => View3D.snapshot(view3dOpts()) });
 $("dlReport").onclick = () => S.result && openReport(S.result, exportCtx());
