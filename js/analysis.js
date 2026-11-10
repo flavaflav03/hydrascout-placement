@@ -212,14 +212,14 @@ function computePlacement(inp) {
   return R;
 }
 
-function irrigationTip(irr) {
+const soilMean = (R) => (R.soil ? { clay: mean(R.soil.clay), sand: mean(R.soil.sand), silt: mean(R.soil.silt) } : null);
+// soil: { clay, sand, silt } averages (or null), used to judge how wide the wetted bulbs are under drip.
+function irrigationTip(irr, soil) {
   if (!irr || irr.type === "none") return null;
   if (irr.type === "drip") {
-    const e = irr.emitter, l = irr.lineSpacing;
-    let t = e && e <= 40 ? `Emitters every ${e} cm form a continuous wet strip: install on the drip line, in the row.`
-      : `Install along the drip line about 10–15 cm from an emitter${e ? ` (emitters every ${e} cm)` : ""}, inside the wetted bulb but not directly under the dripper.`;
-    if (l) t += ` Lines are ${l} cm apart: stay on a line, not between two lines.`;
-    return t;
+    // Never under the emitter (wettest), never at the driest point: a quarter of the way from one to the other.
+    const spot = dripProbeSpot(irr.emitter, irr.lineSpacing, soilWeight(soil).cls);
+    return `${spot.text}${irr.emitter && irr.lineSpacing ? "" : " (spacings not entered: usual values used)"}`;
   }
   if (irr.type === "micro" || irr.type === "sprinkler") {
     const s = irr.spacing;
@@ -239,7 +239,7 @@ function describe(R) {
   const fSlope = stat(R.T.slope, all), fClay = R.soil ? stat(R.soil.clay, all) : null, fNdvi = R.ndvi ? stat(R.ndvi, all) : null;
   const flat = eRange < 1.5 && fSlope < 1;
   R.summary = { eMin, eMax, fSlope, fClay, fNdvi, flat };
-  const tip = irrigationTip(R.irrigation);
+  const tip = irrigationTip(R.irrigation, soilMean(R));
   for (const s of R.sensors) {
     const p = R.pts[s.i], why = [];
     const zE = stat(E, s.idx), zS = stat(R.T.slope, s.idx), zT = stat(R.T.tpi, s.idx);
@@ -307,7 +307,7 @@ function moveSensor(R, s, lat, lon) {
   why.push(R.lab[j] === s.zone ? `Still in ${zoneName(R, s.zone)}, which it represents.`
     : `Warning: this point is ${R.lab[j] < 0 ? "" : "in "}${zoneName(R, R.lab[j])}, so it no longer represents ${zoneName(R, s.zone)}.`);
   if (edge < R.buffer) why.push(`Warning: only ${fmt(edge, 0)} m from ${blockEdge < fieldEdge ? `the border of block ${R.blocks[s.zone].name}` : "the field edge"} (${R.buffer} m recommended). Probes are not installed close to a border.`);
-  Object.assign(s, { i: j, lat, lon, x, y, edge, why, moved: true, tip: q && !q.under ? null : irrigationTip(R.irrigation) });
+  Object.assign(s, { i: j, lat, lon, x, y, edge, why, moved: true, tip: q && !q.under ? null : irrigationTip(R.irrigation, soilMean(R)) });
 }
 // "zone 2", or "block North" when the spots follow irrigation blocks.
 function zoneName(R, z) { return R.blocks ? (z < 0 ? "outside the irrigation blocks" : `block ${R.blocks[z].name}`) : `zone ${z + 1}`; }
