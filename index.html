@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
-<link rel="stylesheet" href="css/app.css?v=24">
+<link rel="stylesheet" href="css/app.css?v=25">
 </head>
 <body>
 <div id="app">
@@ -214,12 +214,14 @@
 
     <section class="step" id="roiStep">
       <h2>Return on investment</h2>
-      <p class="hint">A Hydrascout probe typically saves 10–30% of irrigation water, and the pumping hours, electricity or diesel that go with it. Ask the farmer for their own figures: the closer they are, the more convincing the result.</p>
+      <p class="hint">With a Hydrascout probe the farmer irrigates on what the soil really says, not by feel: typically <b>10–30% less water</b>, with the pumping hours, electricity or diesel that go with it, fewer trips to check the fields and healthier crops. Ask the farmer for their own figures: the closer they are, the more convincing the result.</p>
       <h3 class="sub-h">Water</h3>
       <div class="subopts">
         <label for="roiArea">Irrigated area</label><span><input type="number" id="roiArea" min="0" step="0.1"><span class="unit">ha</span></span>
         <label for="roiWater">Water used per year</label><span><input type="number" id="roiWater" min="0" step="50" placeholder="2000"><span class="unit">m³/ha</span></span>
         <label for="roiWaterPrice">Price of 1 m³ of water</label><span><input type="number" id="roiWaterPrice" min="0" step="0.01" placeholder="0.15"><span class="unit">€/m³</span></span>
+        <label class="full check-line"><input type="checkbox" id="roiQuota"> Water is limited by a quota: use the water saved on more hectares</label>
+        <label for="roiMarginHa" class="roi-quota">Extra margin from 1 more irrigated ha</label><span class="roi-quota"><input type="number" id="roiMarginHa" min="0" step="50" placeholder="800"><span class="unit">€/ha</span></span>
       </div>
       <h3 class="sub-h">Pumping</h3>
       <div class="subopts">
@@ -234,9 +236,28 @@
       <h3 class="sub-h">Probes (HSTI quote)</h3>
       <div class="subopts">
         <label for="roiProbes">Number of probes</label><span><input type="number" id="roiProbes" min="0" step="1"></span>
-        <label for="roiPrice">Price per probe</label><span><input type="number" id="roiPrice" min="0" step="10"><span class="unit">€</span></span>
+        <label for="roiPay">Payment</label>
+        <select id="roiPay"><option value="buy">Buy upfront</option><option value="lease">Monthly lease</option></select>
+        <label for="roiPrice" class="roi-buy">Price per probe</label><span class="roi-buy"><input type="number" id="roiPrice" min="0" step="10"><span class="unit">€</span></span>
+        <label for="roiLease" class="roi-lease">Lease per probe</label><span class="roi-lease"><input type="number" id="roiLease" min="0" step="1" placeholder="30"><span class="unit">€/month</span></span>
         <label for="roiInstall">Installation (total, one-off)</label><span><input type="number" id="roiInstall" min="0" step="10"><span class="unit">€</span></span>
         <label for="roiSub">Subscription per probe</label><span><input type="number" id="roiSub" min="0" step="10"><span class="unit">€/year</span></span>
+        <label for="roiGrant" class="roi-buy">Grant or subsidy (one-off)</label><span class="roi-buy"><input type="number" id="roiGrant" min="0" step="50" placeholder="0"><span class="unit">€</span></span>
+      </div>
+      <h3 class="sub-h">Time</h3>
+      <div class="subopts">
+        <label for="roiTimeWeek">Time saved checking fields</label><span><input type="number" id="roiTimeWeek" min="0" step="0.5" placeholder="3"><span class="unit">h/week</span></span>
+        <label for="roiWeeks">Irrigation season</label><span><input type="number" id="roiWeeks" min="0" max="52" step="1" placeholder="20"><span class="unit">weeks</span></span>
+        <label for="roiHourly">Cost of 1 hour of work</label><span><input type="number" id="roiHourly" min="0" step="1" placeholder="25"><span class="unit">€/h</span></span>
+      </div>
+      <h3 class="sub-h">Other gains (optional)</h3>
+      <div class="subopts">
+        <label for="roiFertHa">Fertiliser spend</label><span><input type="number" id="roiFertHa" min="0" step="10" placeholder="250"><span class="unit">€/ha/year</span></span>
+        <label for="roiFertRate">Fertiliser saved (less leaching)</label><span><input type="number" id="roiFertRate" min="0" max="50" step="1" value="5"><span class="unit">%</span></span>
+        <label for="roiFungHa">Fungicide spend</label><span><input type="number" id="roiFungHa" min="0" step="10" placeholder="150"><span class="unit">€/ha/year</span></span>
+        <label for="roiFungRate">Fungicide saved (less disease)</label><span><input type="number" id="roiFungRate" min="0" max="50" step="1" value="10"><span class="unit">%</span></span>
+        <label for="roiCropHa">Crop sales</label><span><input type="number" id="roiCropHa" min="0" step="100" placeholder="3000"><span class="unit">€/ha/year</span></span>
+        <label for="roiYield">Yield and quality gain</label><span><input type="number" id="roiYield" min="0" max="50" step="1" value="3"><span class="unit">%</span></span>
       </div>
       <h3 class="sub-h">Water saving</h3>
       <div class="subopts">
@@ -259,14 +280,14 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.2/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
-<script src="js/util.js?v=24"></script>
-<script src="js/icons.js?v=24"></script>
-<script src="js/sources.js?v=24"></script>
-<script src="js/analysis.js?v=24"></script>
-<script src="js/roi.js?v=24"></script>
-<script src="js/layout.js?v=24"></script>
-<script src="js/report.js?v=24"></script>
-<script src="js/terrain3d.js?v=24"></script>
-<script src="js/app.js?v=24"></script>
+<script src="js/util.js?v=25"></script>
+<script src="js/icons.js?v=25"></script>
+<script src="js/sources.js?v=25"></script>
+<script src="js/analysis.js?v=25"></script>
+<script src="js/roi.js?v=25"></script>
+<script src="js/layout.js?v=25"></script>
+<script src="js/report.js?v=25"></script>
+<script src="js/terrain3d.js?v=25"></script>
+<script src="js/app.js?v=25"></script>
 </body>
 </html>

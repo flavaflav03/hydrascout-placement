@@ -107,12 +107,15 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:left;p
 .notes{color:#5c6b61;font-size:13px}button{font:inherit;padding:8px 14px;border-radius:6px;border:1px solid #2f6b45;background:#2f6b45;color:#fff;cursor:pointer}
 .headline{font-size:17px;margin:12px 0 0;padding:10px 14px;border-left:4px solid #2f6b45;background:#eef4ef;border-radius:4px}
 .roi-table{font-variant-numeric:tabular-nums}.roi-table td,.roi-table thead th{text-align:right}.roi-table tbody th{font-weight:400;color:#5c6b61}.roi-table td:nth-child(3){background:#eef4ef}
+.roi-water{display:flex;gap:10px;align-items:flex-start;margin:10px 0 0;padding:10px 14px;border-left:4px solid #2b7bb9;background:#e6f1f9;color:#133a57;border-radius:4px}.roi-water p{margin:0}.roi-drop{flex:none}
+.roi-years{font-size:12px}.roi-years td,.roi-years th{white-space:nowrap}.roi-years td:nth-child(3){background:none}.roi-years td:last-child{background:#eef4ef;font-weight:600}.roi-years tr.water td{color:#2b7bb9;font-weight:600}.roi-years tr.total th,.roi-years tr.total td{border-top:2px solid #1d2a22}.roi-years tr.alt th,.roi-years tr.alt td{color:#5c6b61;font-size:11px}.neg{color:#c0392b}.pos{color:#2f6b45}
+h3{font-size:14px;margin:14px 0 4px}
 .legend{display:flex;flex-wrap:wrap;gap:10px;font-size:13px;margin-top:6px}.legend b{font-size:16px}
 @media print{button{display:none}body{padding:0}a{color:inherit}}
 </style></head><body>
 <header><h1>${escapeHtml(title)}</h1><p class="sub">Hydrascout soil &amp; temperature sensors · HSTI France · generated ${new Date().toLocaleDateString()}</p>
 ${C ? `<p class="headline">${C.probes.length} installed probe${C.probes.length > 1 ? "s" : ""}: ${C.counts.map((k, v) => k && `${k} ${["well placed", "worth a look", "should move"][v]}`).filter(Boolean).join(", ")}${C.missing.length ? `; ${C.missing.length} ${R.blocks ? "block" : "zone"}${C.missing.length > 1 ? "s" : ""} without a probe` : ""}.</p>` : ""}
-${X && !C ? `<p class="headline">${X.probes || R.sensors.length} probe${(X.probes || R.sensors.length) > 1 ? "s" : ""} at the spots below: about <b>${eur(X.scenarios[1].saved)} saved a year</b>${X.priced ? `, paying back <b>${paybackText(X.scenarios[1].payback, true)}</b>` : ""} (expected case).</p>` : ""}
+${X && !C ? roiSummaryHtml(X, X.probes || R.sensors.length).replace('class="roi-headline"', 'class="headline"') : ""}
 <p><button onclick="window.print()">Print or save as PDF</button></p></header>
 <h2>Field and data used</h2><dl>${dataRows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
 <h2>Plan</h2>${fieldSvg(R, ctx)}
@@ -126,8 +129,9 @@ ${C ? `<h2>Installed probes</h2><div class="wrap"><table><thead><tr><th>Probe</t
 ${C.missing.length || C.optional.length ? `<h2>Missing probes</h2><ul>${C.missing.map((s) => `<li>${s.block != null ? `Block ${escapeHtml(s.block)}` : `Zone ${s.zone + 1}`} has no probe: recommended spot ${s.name}, ${s.lat.toFixed(6)}, ${s.lon.toFixed(6)}.</li>`).concat(C.optional.map((s) => `<li>Block ${escapeHtml(s.block)} is uneven (${escapeHtml(s.uneven)}): optional second probe at ${s.name}, ${s.lat.toFixed(6)}, ${s.lon.toFixed(6)}.</li>`)).join("")}</ul>` : ""}
 <h2>Recommended spots, for comparison</h2>` : "<h2>Sensor positions</h2>"}<div class="wrap"><table><thead><tr><th>Sensor</th><th>Latitude</th><th>Longitude</th><th>${R.blocks ? "Block" : "Zone"} (share)</th><th>Elevation</th><th>Clay</th><th>NDVI</th></tr></thead><tbody>${table}</tbody></table></div>
 ${C ? "" : `<h2>Why each spot was chosen</h2>${cards}`}
-${X && !C ? `<h2>Return on investment</h2><p>${escapeHtml(roiBasis(X))} ${escapeHtml(roiCostText(X))}</p><div class="wrap">${roiTable(X)}</div>
-<p class="notes">Savings use the farmer's own figures and a water saving of ${X.scenarios.map((sc) => `${num(sc.rate)}%`).join(" / ")} (low / expected / high), in line with what Hydrascout probes typically save (10–30% of irrigation water, with the pumping hours that go with it). Payback counts irrigation seasons.</p>` : ""}
+${X && !C ? `<h2>Return on investment</h2><p>${escapeHtml(roiBasis(X))} ${escapeHtml(roiCostText(X))}</p><h3>Each year, three cases</h3><div class="wrap">${roiTable(X)}</div>
+<h3>Over ${ROI_YEARS} years, expected case</h3><div class="wrap">${roiYearsTable(X)}</div>
+<p class="notes">Savings use the farmer's own figures and a water saving of ${X.scenarios.map((sc) => `${num(sc.rate)}%`).join(" / ")} (low / expected / high), in line with what Hydrascout probes typically save (10–30% of irrigation water, with the pumping hours that go with it). Time, fertiliser, fungicide and yield gains are the farmer's own estimates and are the same in all three cases.${X.quota ? " With a water quota, the water saved irrigates more hectares instead of lowering the bill." : ""}${X.lease ? " The probes are leased: nothing to buy upfront." : ""} Payback counts irrigation seasons.</p>` : ""}
 <h2>Method and limits</h2><ul class="notes"><li>The field is sampled on a regular grid. Each point gets elevation, slope, relative position (hollow or rise), soil texture, NDVI and irrigation coverage when available. ${R.blocks ? "Each irrigation block gets one probe at its most typical point, away from the field edge and the block border; a block made of two clearly different parts gets an optional second probe." : "Points are grouped into zones with similar conditions, and each sensor sits at the most typical point of its zone, away from the field edge."}</li>${R.notes.map((n) => `<li>${escapeHtml(n)}</li>`).join("")}</ul>
 </body></html>`;
   return html;
