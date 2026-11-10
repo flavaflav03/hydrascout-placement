@@ -293,3 +293,16 @@ button *, .btn > svg, .btn > span { pointer-events: none; } /* clicks land on th
 .v3-stats i { width: 10px; height: 10px; border-radius: 2px; border: 1px solid var(--line); }
 .v3-foot .hint { margin: 0; }
 @media (max-width: 760px) { .v3-title { width: 100%; } .v3-bar { gap: 6px; } .v3-foot .hint { font-size: 12px; } .v3-here { bottom: auto; top: 10px; } }
+
+/* crop and root depth */
+.roots { display: grid; grid-template-columns: 1fr 44px; gap: 8px 14px; padding: 10px 12px; border-radius: 6px; background: var(--bg); }
+.roots .summary { grid-column: 1; margin: 0; }
+.roots .notes { grid-column: 1 / -1; margin: 0; }
+.roots .hint { grid-column: 1 / -1; margin: 0; }
+.root-bar { grid-column: 2; grid-row: 1; position: relative; min-height: 120px; border-radius: 4px; background: linear-gradient(#a8733a33, #a8733a66); overflow: hidden; }
+.root-bar span { position: absolute; left: 0; right: 0; top: 0; }
+.root-bar .all { background: #4f9e5240; border-bottom: 2px dashed #4f9e52; }
+.root-bar .active { background: #4f9e5260; }
+.root-bar .now { height: 0; border-top: 2px solid #2f7fbf; }
+.root-bar .probe { left: 45%; right: 45%; background: var(--ink); border-radius: 0 0 3px 3px; }
+.roots .summary div { background: var(--panel); }
