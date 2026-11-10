@@ -314,3 +314,5 @@ button *, .btn > svg, .btn > span { pointer-events: none; } /* clicks land on th
 .roi-compact tr.total th, .roi-compact tr.total td { border-top: 2px solid var(--ink); }
 .roi-compact td { white-space: nowrap; padding: 6px 4px; }
 .roi-compact th { padding: 6px 4px; }
+.check-line { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.check-line input { width: auto; margin: 0; }
