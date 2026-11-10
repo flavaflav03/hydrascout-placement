@@ -53,13 +53,18 @@ function exportGeoJson(R, ctx) {
 }
 
 // Plan view of the field with zones and sensors, drawn in local metres.
-function fieldSvg(R, ctx) {
+// ndvi: the NDVI image shown on the map ({ url, bounds }); when given, it is drawn under the plan instead of the zone colours.
+function fieldSvg(R, ctx, ndvi) {
   const P = R.G.P, ring = ctx.field.map(([a, b]) => P.fwd(a, b)), h = R.G.spacing / 2;
   const xs = ring.map((p) => p[0]), ys = ring.map((p) => p[1]);
   const pad = 20, x0 = Math.min(...xs) - pad, x1 = Math.max(...xs) + pad, y0 = Math.min(...ys) - pad, y1 = Math.max(...ys) + pad;
   const W = 640, H = Math.max(240, Math.min(720, (W * (y1 - y0)) / (x1 - x0))), sc = Math.min(W / (x1 - x0), H / (y1 - y0));
   const X = (x) => (x - x0) * sc, Y = (y) => H - (y - y0) * sc;
-  const cells = R.pts.map((p, i) => `<rect x="${X(p.x - h).toFixed(1)}" y="${Y(p.y + h).toFixed(1)}" width="${(2 * h * sc + 0.6).toFixed(1)}" height="${(2 * h * sc + 0.6).toFixed(1)}" fill="${zoneColor(R.lab[i])}" fill-opacity="0.45"/>`).join("");
+  let cells = R.pts.map((p, i) => `<rect x="${X(p.x - h).toFixed(1)}" y="${Y(p.y + h).toFixed(1)}" width="${(2 * h * sc + 0.6).toFixed(1)}" height="${(2 * h * sc + 0.6).toFixed(1)}" fill="${zoneColor(R.lab[i])}" fill-opacity="0.45"/>`).join("");
+  if (ndvi) {
+    const [[la0, lo0], [la1, lo1]] = ndvi.bounds, [ax, ay] = P.fwd(la0, lo0), [bx, by] = P.fwd(la1, lo1);
+    cells = `<image href="${ndvi.url}" x="${X(ax).toFixed(1)}" y="${Y(by).toFixed(1)}" width="${(X(bx) - X(ax)).toFixed(1)}" height="${(Y(ay) - Y(by)).toFixed(1)}" preserveAspectRatio="none"/>`;
+  }
   let pivot = "";
   if (R.piv && R.irrigation.pivot) { const [cx, cy] = P.fwd(R.irrigation.pivot.lat, R.irrigation.pivot.lon); pivot = `<circle cx="${X(cx)}" cy="${Y(cy)}" r="${R.irrigation.pivot.radius * sc}" fill="none" stroke="#2f7fbf" stroke-width="1.5" stroke-dasharray="6 4"/>`; }
   const sens = R.sensors.map((s) => { const [px, py] = P.fwd(s.lat, s.lon); return `<g><circle cx="${X(px)}" cy="${Y(py)}" r="11" fill="${zoneColor(s.zone)}" stroke="#fff" stroke-width="2.5"/><text x="${X(px)}" y="${Y(py) + 4.5}" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">${R.sensors.indexOf(s) + 1}</text></g>`; }).join("");
@@ -69,7 +74,7 @@ function fieldSvg(R, ctx) {
     return `${line}<g><rect x="${X(px) - 9}" y="${Y(py) - 9}" width="18" height="18" rx="3" transform="rotate(45 ${X(px)} ${Y(py)})" fill="${SEVC[a.sev]}" stroke="#fff" stroke-width="2.5"/><text x="${X(px) + 14}" y="${Y(py) + 4}" font-size="12" font-weight="700" fill="#1e2d40">${escapeHtml(a.name)}</text></g>`; }).join("") : "";
   const sensFinal = ctx.check ? R.sensors.map((s) => { const [px, py] = P.fwd(s.lat, s.lon); return `<g><circle cx="${X(px)}" cy="${Y(py)}" r="10" fill="#fff" fill-opacity=".85" stroke="${zoneColor(s.zone)}" stroke-width="3"/><text x="${X(px)}" y="${Y(py) + 4}" text-anchor="middle" font-size="11" font-weight="700" fill="#1e2d40">${R.sensors.indexOf(s) + 1}</text></g>`; }).join("") + probes : sens;
   const nice = [10, 20, 50, 100, 200, 500, 1000].find((m) => m * sc > 60) || 1000;
-  return `<svg viewBox="0 0 ${W} ${H.toFixed(0)}" width="100%" role="img" aria-label="Field plan with sensor positions" style="max-width:${W}px;background:#f3f5f1;border-radius:6px">
+  return `<svg viewBox="0 0 ${W} ${H.toFixed(0)}" width="100%" role="img" aria-label="${ndvi ? "Crop vigour (NDVI) map" : "Field plan"} with sensor positions" style="max-width:${W}px;background:#f3f5f1;border-radius:6px">
     ${cells}${pivot}${(R.blocks ? R.blocks.map((b) => b.xy) : [ring]).map((r) => `<polygon points="${r.map((p) => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" ")}" fill="none" stroke="#1e2d40" stroke-width="2"/>`).join("")}${sensFinal}
     <g transform="translate(${W - 30},28)"><path d="M0,-16 L7,6 L0,1 L-7,6 Z" fill="#1e2d40"/><text y="20" text-anchor="middle" font-size="12" fill="#1e2d40">N</text></g>
     <g transform="translate(14,${H - 14})"><rect width="${nice * sc}" height="4" fill="#1e2d40"/><text y="-5" font-size="11" fill="#1e2d40">${nice} m</text></g></svg>`;
@@ -124,6 +129,7 @@ ${X && !C ? roiSummaryHtml(X, X.probes || R.sensors.length).replace('class="roi-
 <h2>Plan</h2>${fieldSvg(R, ctx)}
 ${C ? `<p class="notes">◆ installed probes (green: good spot, amber: worth a look, red: should move); ○ recommended spots; dashed line: suggested move.</p>` : ""}<div class="legend">${R.blocks ? R.blocks.map((b, bi) => `<span><b style="color:${zoneColor(bi)}">■</b> Block ${escapeHtml(b.name)} · ${fmt(b.ha, 1)} ha · ${R.sensors.filter((s) => s.zone === bi).map((s) => s.name + optTag(s)).join(", ") || "no probe"}</span>`).join("")
   : R.sensors.map((s) => `<span><b style="color:${zoneColor(s.zone)}">■</b> Zone ${s.zone + 1} · ${fmt(s.share * 100, 0)}% · ${s.name}</span>`).join("")}</div>
+${ndviSection(R, ctx)}
 ${ctx.layout ? `<h2>Irrigation layout</h2>${ctx.layout}<p class="notes">Worked out from the irrigation settings and the blocks: a schematic to agree with the grower, not a survey of the pipes.</p>` : ""}
 ${ctx.section ? `<h2>Cross-section</h2>${ctx.section}` : ""}
 ${terrainSection(R, ctx, fine)}
@@ -140,6 +146,16 @@ ${X && !C ? `<h2>Return on investment</h2><p>${escapeHtml(roiBasis(X))} ${escape
 <h2>Method and limits</h2><ul class="notes"><li>The field is sampled on a regular grid. Each point gets elevation, slope, relative position (hollow or rise), soil texture, NDVI and irrigation coverage when available. ${R.blocks ? "Each irrigation block gets one probe at its most typical point, away from the field edge and the block border; a block made of two clearly different parts gets an optional second probe." : "Points are grouped into zones with similar conditions, and each sensor sits at the most typical point of its zone, away from the field edge."}</li>${R.notes.map((n) => `<li>${escapeHtml(n)}</li>`).join("")}</ul>
 </body></html>`;
   return html;
+}
+
+// The NDVI image shown on the map, clipped to the field, with the probes on top and its colour scale.
+function ndviSection(R, ctx) {
+  const nd = ctx.ndvi; if (!nd || !nd.url) return "";
+  const [c0, c1] = nd.scale || [nd.lo, nd.hi], pos = Math.max(0, Math.min(1, (nd.mean - c0) / (c1 - c0 || 1))) * 100;
+  return `<h2>Crop vigour (NDVI)</h2>${fieldSvg(R, ctx, nd)}
+<div style="max-width:640px;margin:8px 0 4px"><div style="position:relative;height:12px;border-radius:6px;background:linear-gradient(90deg,${Array.from({ length: 11 }, (_, i) => ndviRamp(i / 10)).join(",")})"><span title="Field average" style="position:absolute;left:${pos.toFixed(1)}%;top:-3px;width:3px;height:18px;margin-left:-1.5px;background:#1e2d40;border-radius:2px"></span></div>
+<div style="display:flex;justify-content:space-between;font-size:12px;color:#5a6f86;margin-top:3px"><span>${fmt(c0, 1)} · lower vigour</span><span>field average ${fmt(nd.mean, 2)}</span><span>${fmt(c1, 1)} · higher vigour</span></div></div>
+<p class="notes">${escapeHtml(nd.label || "NDVI image")}. Field NDVI ${fmt(nd.lo, 2)} to ${fmt(nd.hi, 2)}. Weaker patches often mean drier or poorer soil: compare them with where the probes sit.</p>`;
 }
 
 // Terrain from the lidar model: each block's lowest and highest ground and slope, and a 3D picture of the blocks.
