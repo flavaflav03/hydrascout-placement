@@ -52,6 +52,18 @@ header { display: flex; flex-direction: column; gap: 6px; padding-bottom: 14px; 
 .brand-logo { display: block; height: 40px; margin: 4px 0 10px; }
 .brand-logo svg { display: block; height: 100%; width: auto; }
 .brand-logo .lg-a { fill: var(--logo-a); } .brand-logo .lg-b { fill: var(--logo-b); }
+/* "New customer" reset, top right of the header (trade shows: one tap between two visitors) */
+.head-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.head-top .brand-logo { min-width: 0; }
+.reset-btn { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px;
+  border: 1px solid var(--accent); color: var(--accent); background: transparent; font: 600 13px/1 var(--font-ui); white-space: nowrap; }
+.reset-btn:hover { background: var(--accent); color: var(--accent-ink); }
+.reset-dlg { max-width: min(420px, calc(100vw - 32px)); border: 1px solid var(--line); border-radius: 12px; padding: 20px;
+  background: var(--panel); color: var(--ink); box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+.reset-dlg::backdrop { background: rgba(10, 25, 40, .45); }
+.reset-dlg h2 { font: 600 18px/1.2 var(--font-head); color: var(--head); margin: 0 0 10px; }
+.reset-dlg p { margin: 0 0 10px; font-size: 14px; }
+.reset-act { justify-content: flex-end; margin-top: 14px; }
 header h1 { font: 700 22px/1.1 var(--font-head); color: var(--head); margin: 0; letter-spacing: .1px; text-wrap: balance; }
 header p { margin: 0; color: var(--muted); font-size: 14px; }
 .step { display: flex; flex-direction: column; gap: 10px; }
