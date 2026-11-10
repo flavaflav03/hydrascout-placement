@@ -23,6 +23,7 @@ function irrigationSummary(irr) {
     if (irr.pivot.span) parts.push(`spans of ${irr.pivot.span} m`);
     if (irr.type === "pivot" && irr.pivot.lat != null) parts.push(`centre ${irr.pivot.lat.toFixed(5)}, ${irr.pivot.lon.toFixed(5)}`);
   }
+  if (irr.rowBearing != null) parts.push(`rows ${irr.rowBearing}° from north`);
   if (irr.notes) parts.push(irr.notes);
   return parts.join(", ");
 }
@@ -65,13 +66,13 @@ function fieldSvg(R, ctx) {
   const SEVC = ["#3f9a52", "#e0a02a", "#d0453a"];
   const probes = ctx.check ? ctx.check.probes.map((a, n) => { const [px, py] = P.fwd(a.lat, a.lon); let line = "";
     if (a.sev && a.ref && a.move >= 3) { const [tx, ty] = P.fwd(a.ref.s.lat, a.ref.s.lon); line = `<line x1="${X(px)}" y1="${Y(py)}" x2="${X(tx)}" y2="${Y(ty)}" stroke="${SEVC[a.sev]}" stroke-width="2" stroke-dasharray="5 4"/>`; }
-    return `${line}<g><rect x="${X(px) - 9}" y="${Y(py) - 9}" width="18" height="18" rx="3" transform="rotate(45 ${X(px)} ${Y(py)})" fill="${SEVC[a.sev]}" stroke="#fff" stroke-width="2.5"/><text x="${X(px) + 14}" y="${Y(py) + 4}" font-size="12" font-weight="700" fill="#1d2a22">${escapeHtml(a.name)}</text></g>`; }).join("") : "";
-  const sensFinal = ctx.check ? R.sensors.map((s) => { const [px, py] = P.fwd(s.lat, s.lon); return `<g><circle cx="${X(px)}" cy="${Y(py)}" r="10" fill="#fff" fill-opacity=".85" stroke="${zoneColor(s.zone)}" stroke-width="3"/><text x="${X(px)}" y="${Y(py) + 4}" text-anchor="middle" font-size="11" font-weight="700" fill="#1d2a22">${R.sensors.indexOf(s) + 1}</text></g>`; }).join("") + probes : sens;
+    return `${line}<g><rect x="${X(px) - 9}" y="${Y(py) - 9}" width="18" height="18" rx="3" transform="rotate(45 ${X(px)} ${Y(py)})" fill="${SEVC[a.sev]}" stroke="#fff" stroke-width="2.5"/><text x="${X(px) + 14}" y="${Y(py) + 4}" font-size="12" font-weight="700" fill="#1e2d40">${escapeHtml(a.name)}</text></g>`; }).join("") : "";
+  const sensFinal = ctx.check ? R.sensors.map((s) => { const [px, py] = P.fwd(s.lat, s.lon); return `<g><circle cx="${X(px)}" cy="${Y(py)}" r="10" fill="#fff" fill-opacity=".85" stroke="${zoneColor(s.zone)}" stroke-width="3"/><text x="${X(px)}" y="${Y(py) + 4}" text-anchor="middle" font-size="11" font-weight="700" fill="#1e2d40">${R.sensors.indexOf(s) + 1}</text></g>`; }).join("") + probes : sens;
   const nice = [10, 20, 50, 100, 200, 500, 1000].find((m) => m * sc > 60) || 1000;
   return `<svg viewBox="0 0 ${W} ${H.toFixed(0)}" width="100%" role="img" aria-label="Field plan with sensor positions" style="max-width:${W}px;background:#f3f5f1;border-radius:6px">
-    ${cells}${pivot}${(R.blocks ? R.blocks.map((b) => b.xy) : [ring]).map((r) => `<polygon points="${r.map((p) => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" ")}" fill="none" stroke="#1d2a22" stroke-width="2"/>`).join("")}${sensFinal}
-    <g transform="translate(${W - 30},28)"><path d="M0,-16 L7,6 L0,1 L-7,6 Z" fill="#1d2a22"/><text y="20" text-anchor="middle" font-size="12" fill="#1d2a22">N</text></g>
-    <g transform="translate(14,${H - 14})"><rect width="${nice * sc}" height="4" fill="#1d2a22"/><text y="-5" font-size="11" fill="#1d2a22">${nice} m</text></g></svg>`;
+    ${cells}${pivot}${(R.blocks ? R.blocks.map((b) => b.xy) : [ring]).map((r) => `<polygon points="${r.map((p) => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" ")}" fill="none" stroke="#1e2d40" stroke-width="2"/>`).join("")}${sensFinal}
+    <g transform="translate(${W - 30},28)"><path d="M0,-16 L7,6 L0,1 L-7,6 Z" fill="#1e2d40"/><text y="20" text-anchor="middle" font-size="12" fill="#1e2d40">N</text></g>
+    <g transform="translate(14,${H - 14})"><rect width="${nice * sc}" height="4" fill="#1e2d40"/><text y="-5" font-size="11" fill="#1e2d40">${nice} m</text></g></svg>`;
 }
 
 function reportHtml(R, ctx) {
@@ -108,17 +109,21 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:left;p
 .notes{color:#5a6f86;font-size:13px}button{font:inherit;padding:8px 14px;border-radius:6px;border:1px solid #0380B8;background:#0380B8;color:#fff;cursor:pointer}
 .headline{font-size:17px;margin:12px 0 0;padding:10px 14px;border-left:4px solid #0380B8;background:#e8f1f7;border-radius:4px}
 .roi-table{font-variant-numeric:tabular-nums}.roi-table td,.roi-table thead th{text-align:right}.roi-table tbody th{font-weight:400;color:#5a6f86}.roi-table td:nth-child(3){background:#e8f1f7}
+.roi-water{display:flex;gap:10px;align-items:flex-start;margin:10px 0 0;padding:10px 14px;border-left:4px solid #0380B8;background:#e6f1f9;color:#133a57;border-radius:4px}.roi-water p{margin:0}.roi-drop{flex:none}
+.roi-years{font-size:12px}.roi-years td,.roi-years th{white-space:nowrap}.roi-years td:nth-child(3){background:none}.roi-years td:last-child{background:#e8f1f7;font-weight:600}.roi-years tr.water td{color:#0380B8;font-weight:600}.roi-years tr.total th,.roi-years tr.total td{border-top:2px solid #1e2d40}.roi-years tr.alt th,.roi-years tr.alt td{color:#5a6f86;font-size:11px}.neg{color:#c0392b}.pos{color:#0380B8}
+h3{font-size:14px;margin:14px 0 4px}
 .legend{display:flex;flex-wrap:wrap;gap:10px;font-size:13px;margin-top:6px}.legend b{font-size:16px}
 @media print{button{display:none}body{padding:0}a{color:inherit}}
 </style></head><body>
 <header><div class="brand">${typeof BRAND !== "undefined" ? BRAND.logoBaseline : ""}</div><h1>${escapeHtml(title)}</h1><p class="sub">HydraScout soil moisture &amp; temperature probes · generated ${new Date().toLocaleDateString()}</p>
 ${C ? `<p class="headline">${C.probes.length} installed probe${C.probes.length > 1 ? "s" : ""}: ${C.counts.map((k, v) => k && `${k} ${["well placed", "worth a look", "should move"][v]}`).filter(Boolean).join(", ")}${C.missing.length ? `; ${C.missing.length} ${R.blocks ? "block" : "zone"}${C.missing.length > 1 ? "s" : ""} without a probe` : ""}.</p>` : ""}
-${X && !C ? `<p class="headline">${X.probes || R.sensors.length} probe${(X.probes || R.sensors.length) > 1 ? "s" : ""} at the spots below: about <b>${eur(X.scenarios[1].saved)} saved a year</b>${X.priced ? `, paying back <b>${paybackText(X.scenarios[1].payback, true)}</b>` : ""} (expected case).</p>` : ""}
+${X && !C ? roiSummaryHtml(X, X.probes || R.sensors.length).replace('class="roi-headline"', 'class="headline"') : ""}
 <p><button onclick="window.print()">Print or save as PDF</button></p></header>
 <h2>Field and data used</h2><dl>${dataRows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
 <h2>Plan</h2>${fieldSvg(R, ctx)}
 ${C ? `<p class="notes">◆ installed probes (green: good spot, amber: worth a look, red: should move); ○ recommended spots; dashed line: suggested move.</p>` : ""}<div class="legend">${R.blocks ? R.blocks.map((b, bi) => `<span><b style="color:${zoneColor(bi)}">■</b> Block ${escapeHtml(b.name)} · ${fmt(b.ha, 1)} ha · ${R.sensors.filter((s) => s.zone === bi).map((s) => s.name + optTag(s)).join(", ") || "no probe"}</span>`).join("")
   : R.sensors.map((s) => `<span><b style="color:${zoneColor(s.zone)}">■</b> Zone ${s.zone + 1} · ${fmt(s.share * 100, 0)}% · ${s.name}</span>`).join("")}</div>
+${ctx.layout ? `<h2>Irrigation layout</h2>${ctx.layout}<p class="notes">Worked out from the irrigation settings and the blocks: a schematic to agree with the grower, not a survey of the pipes.</p>` : ""}
 ${terrainSection(R, ctx, fine)}
 ${C ? `<h2>Installed probes</h2><div class="wrap"><table><thead><tr><th>Probe</th><th>Latitude</th><th>Longitude</th><th>${R.blocks ? "Block" : "Zone"}</th><th>To border</th><th>Verdict</th><th>Suggestion</th></tr></thead><tbody>${checkRows(R, C, ctx)}</tbody></table></div>
 <h2>Each probe</h2>${C.probes.map((a) => `<section class="s"><h3><span style="background:${["#3f9a52", "#e0a02a", "#d0453a"][a.sev]};border-radius:4px">${a.sev ? "!" : "✓"}</span>${escapeHtml(a.name)} · ${a.verdict}</h3>
@@ -126,8 +131,9 @@ ${C ? `<h2>Installed probes</h2><div class="wrap"><table><thead><tr><th>Probe</t
 ${C.missing.length || C.optional.length ? `<h2>Missing probes</h2><ul>${C.missing.map((s) => `<li>${s.block != null ? `Block ${escapeHtml(s.block)}` : `Zone ${s.zone + 1}`} has no probe: recommended spot ${s.name}, ${s.lat.toFixed(6)}, ${s.lon.toFixed(6)}.</li>`).concat(C.optional.map((s) => `<li>Block ${escapeHtml(s.block)} is uneven (${escapeHtml(s.uneven)}): optional second probe at ${s.name}, ${s.lat.toFixed(6)}, ${s.lon.toFixed(6)}.</li>`)).join("")}</ul>` : ""}
 <h2>Recommended spots, for comparison</h2>` : "<h2>Sensor positions</h2>"}<div class="wrap"><table><thead><tr><th>Sensor</th><th>Latitude</th><th>Longitude</th><th>${R.blocks ? "Block" : "Zone"} (share)</th><th>Elevation</th><th>Clay</th><th>NDVI</th></tr></thead><tbody>${table}</tbody></table></div>
 ${C ? "" : `<h2>Why each spot was chosen</h2>${cards}`}
-${X && !C ? `<h2>Return on investment</h2><p>${escapeHtml(roiBasis(X))} ${escapeHtml(roiCostText(X))}</p><div class="wrap">${roiTable(X)}</div>
-<p class="notes">Savings use the farmer's own figures and a water saving of ${X.scenarios.map((sc) => `${num(sc.rate)}%`).join(" / ")} (low / expected / high), in line with what HydraScout probes typically save (10–30% of irrigation water, with the pumping hours that go with it). Payback counts irrigation seasons.</p>` : ""}
+${X && !C ? `<h2>Return on investment</h2><p>${escapeHtml(roiBasis(X))} ${escapeHtml(roiCostText(X))}</p><h3>Each year, three cases</h3><div class="wrap">${roiTable(X)}</div>
+<h3>Over ${ROI_YEARS} years, expected case</h3><div class="wrap">${roiYearsTable(X)}</div>
+<p class="notes">Savings use the farmer's own figures and a water saving of ${X.scenarios.map((sc) => `${num(sc.rate)}%`).join(" / ")} (low / expected / high), in line with what HydraScout probes typically save (10–30% of irrigation water, with the pumping hours that go with it). Time, fertiliser, fungicide and yield gains are the farmer's own estimates and are the same in all three cases.${X.quota ? " With a water quota, the water saved irrigates more hectares instead of lowering the bill." : ""}${X.lease ? " The probes are leased: nothing to buy upfront." : ""} Payback counts irrigation seasons.</p>` : ""}
 <h2>Method and limits</h2><ul class="notes"><li>The field is sampled on a regular grid. Each point gets elevation, slope, relative position (hollow or rise), soil texture, NDVI and irrigation coverage when available. ${R.blocks ? "Each irrigation block gets one probe at its most typical point, away from the field edge and the block border; a block made of two clearly different parts gets an optional second probe." : "Points are grouped into zones with similar conditions, and each sensor sits at the most typical point of its zone, away from the field edge."}</li>${R.notes.map((n) => `<li>${escapeHtml(n)}</li>`).join("")}</ul>
 </body></html>`;
   return html;
@@ -152,7 +158,7 @@ ${rows ? `<div class="wrap"><table><thead><tr><th>${R.blocks ? "Block" : "Area"}
 // 3D picture of the blocks is ready, or after 25 s without it.
 async function openReport(R, ctx) {
   const w = window.open("", "_blank");
-  if (w) w.document.write('<!doctype html><meta charset="utf-8"><title>Preparing the report…</title><p style="font:16px system-ui;padding:24px;color:#5c6b61">Preparing the report and its 3D view of the blocks…</p>');
+  if (w) w.document.write('<!doctype html><meta charset="utf-8"><title>Preparing the report…</title><p style="font:16px system-ui;padding:24px;color:#5a6f86">Preparing the report and its 3D view of the blocks…</p>');
   if (ctx.snapshot) ctx.picture = await Promise.race([ctx.snapshot(), sleep(25000).then(() => null)]).catch(() => null);
   const html = reportHtml(R, ctx), url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
   if (w && !w.closed) w.location.href = url; else download(`${fileBase(ctx)}-report.html`, "text/html", html);
