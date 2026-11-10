@@ -76,17 +76,17 @@ function fieldSvg(R, ctx) {
 
 function reportHtml(R, ctx) {
   const C = ctx.check, c = centroidLatLng(ctx.field), kind = C ? "Probe position check" : "Sensor placement", title = ctx.fieldName ? `${kind} – ${ctx.fieldName}` : kind;
-  const sm = R.summary, X = ctx.roi;
+  const sm = R.summary, X = ctx.roi, fine = !!(R.elevInfo && R.elevInfo.res <= 10);
   const dataRows = [
     ["Field", `${ctx.fieldName ? escapeHtml(ctx.fieldName) + ", " : ""}${fmt(R.ha, 2)} ha, centre ${c[0].toFixed(5)}, ${c[1].toFixed(5)}`],
-    ["Elevation", `Copernicus DEM GLO-90 (via Open-Meteo): ${fmt(sm.eMin, 0)}–${fmt(sm.eMax, 0)} m, mean slope ${fmt(sm.fSlope, 1)}%`],
+    ["Elevation", `${R.elevInfo ? escapeHtml(demLabel({ source: R.elevInfo.label, res: R.elevInfo.res })) : "Copernicus DEM GLO-90 (via Open-Meteo)"}: ${fmt(sm.eMin, fine ? 1 : 0)}–${fmt(sm.eMax, fine ? 1 : 0)} m, mean slope ${fmt(sm.fSlope, 1)}%`],
     ["Soil", R.soil ? `ISRIC SoilGrids 2.0, 0–60 cm: about ${fmt(sm.fClay, 0)}% clay on average` : "Not loaded"],
     ["NDVI", R.ndviInfo ? `${escapeHtml(R.ndviInfo.label)}${R.ndviInfo.cloud != null ? ` (scene cloud cover ${fmt(R.ndviInfo.cloud, 0)}%)` : ""}, field average ${fmt(sm.fNdvi, 2)}` : "Not used"],
     ["Irrigation", escapeHtml(irrigationSummary(R.irrigation))],
     ...(ctx.askedBlocks ? [["Irrigation blocks", `${ctx.askedBlocks} according to the grower, so ${ctx.askedBlocks} probe${ctx.askedBlocks > 1 ? "s" : ""} (one per block)${R.blocks && R.blocks.length !== ctx.askedBlocks ? `; ${R.blocks.length} drawn on the map` : ""}`]] : []),
     [C ? "Recommended" : "Sensors", `${R.sensors.length}${R.blocks ? ` for ${R.blocks.length} irrigation block${R.blocks.length > 1 ? "s" : ""} (one per block${R.sensors.some((s) => s.optional) ? ", plus optional ones for uneven blocks" : ""})` : ""}, at least ${R.buffer} m from the field edge${R.blocks ? " and the block borders" : ""} where possible`],
   ];
-  const table = R.sensors.map((s) => `<tr><td><b style="color:${zoneColor(s.zone)}">●</b> ${s.name}${optTag(s)}${s.moved ? " (moved)" : ""}</td><td>${s.lat.toFixed(6)}</td><td>${s.lon.toFixed(6)}</td><td>${escapeHtml(zoneOf(s))} (${fmt(s.share * 100, 0)}%)</td><td>${fmt(R.T.elev[s.i], 0)} m</td><td>${R.soil ? fmt(R.soil.clay[s.i], 0) + "%" : "–"}</td><td>${R.ndvi ? fmt(R.ndvi[s.i], 2) : "–"}</td></tr>`).join("");
+  const table = R.sensors.map((s) => `<tr><td><b style="color:${zoneColor(s.zone)}">●</b> ${s.name}${optTag(s)}${s.moved ? " (moved)" : ""}</td><td>${s.lat.toFixed(6)}</td><td>${s.lon.toFixed(6)}</td><td>${escapeHtml(zoneOf(s))} (${fmt(s.share * 100, 0)}%)</td><td>${fmt(R.T.elev[s.i], fine ? 1 : 0)} m</td><td>${R.soil ? fmt(R.soil.clay[s.i], 0) + "%" : "–"}</td><td>${R.ndvi ? fmt(R.ndvi[s.i], 2) : "–"}</td></tr>`).join("");
   const cards = R.sensors.map((s) => `<section class="s"><h3><span style="background:${zoneColor(s.zone)}">${R.sensors.indexOf(s) + 1}</span>${s.name}${optTag(s)}</h3>
     <p class="mono">${s.lat.toFixed(6)}, ${s.lon.toFixed(6)} · <a href="https://www.google.com/maps/dir/?api=1&destination=${s.lat.toFixed(6)},${s.lon.toFixed(6)}">directions</a></p>
     <p class="lbl">Why here</p><ul>${s.why.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>
@@ -117,6 +117,7 @@ ${X && !C ? `<p class="headline">${X.probes || R.sensors.length} probe${(X.probe
 <h2>Plan</h2>${fieldSvg(R, ctx)}
 ${C ? `<p class="notes">◆ installed probes (green: good spot, amber: worth a look, red: should move); ○ recommended spots; dashed line: suggested move.</p>` : ""}<div class="legend">${R.blocks ? R.blocks.map((b, bi) => `<span><b style="color:${zoneColor(bi)}">■</b> Block ${escapeHtml(b.name)} · ${fmt(b.ha, 1)} ha · ${R.sensors.filter((s) => s.zone === bi).map((s) => s.name + optTag(s)).join(", ") || "no probe"}</span>`).join("")
   : R.sensors.map((s) => `<span><b style="color:${zoneColor(s.zone)}">■</b> Zone ${s.zone + 1} · ${fmt(s.share * 100, 0)}% · ${s.name}</span>`).join("")}</div>
+${terrainSection(R, ctx, fine)}
 ${C ? `<h2>Installed probes</h2><div class="wrap"><table><thead><tr><th>Probe</th><th>Latitude</th><th>Longitude</th><th>${R.blocks ? "Block" : "Zone"}</th><th>To border</th><th>Verdict</th><th>Suggestion</th></tr></thead><tbody>${checkRows(R, C, ctx)}</tbody></table></div>
 <h2>Each probe</h2>${C.probes.map((a) => `<section class="s"><h3><span style="background:${["#3f9a52", "#e0a02a", "#d0453a"][a.sev]};border-radius:4px">${a.sev ? "!" : "✓"}</span>${escapeHtml(a.name)} · ${a.verdict}</h3>
     <p class="mono">${a.lat.toFixed(6)}, ${a.lon.toFixed(6)}${a.serial ? ` · device ${escapeHtml(a.serial)}` : ""}</p><ul>${a.lines.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>${a.suggest ? `<p><b>${escapeHtml(a.suggest)}</b>${a.ref && a.sev && a.move >= 3 ? ` <a href="https://www.google.com/maps/dir/?api=1&destination=${a.ref.s.lat.toFixed(6)},${a.ref.s.lon.toFixed(6)}">directions</a>` : ""}</p>` : ""}</section>`).join("")}
@@ -130,11 +131,29 @@ ${X && !C ? `<h2>Return on investment</h2><p>${escapeHtml(roiBasis(X))} ${escape
   return html;
 }
 
+// Terrain from the lidar model: each block's lowest and highest ground and slope, and a 3D picture of the blocks.
+function terrainSection(R, ctx, fine) {
+  const rel = R.elevInfo && R.elevInfo.relief;
+  if (!rel && !ctx.picture) return "";
+  const names = R.blocks ? R.blocks.map((b) => `Block ${escapeHtml(b.name)}`) : ["Field"];
+  const slopeOf = (bi) => mean(R.pts.map((_, i) => i).filter((i) => !R.blocks || R.lab[i] === bi).map((i) => R.T.slope[i]));
+  const rows = rel ? rel.map((r, bi) => r && `<tr><td>${R.blocks ? `<b style="color:${zoneColor(bi)}">■</b> ` : ""}${names[bi] || ""}</td><td>${fmt(r.lo, 1)} m</td><td>${fmt(r.hi, 1)} m</td><td><b>${fmt(r.hi - r.lo, 1)} m</b></td><td>${fmt(slopeOf(bi), 1)}%</td><td>${R.sensors.filter((s) => (R.blocks ? s.zone === bi : true)).map((s) => `${s.name} ${fmt(R.T.elev[s.i], fine ? 1 : 0)} m`).join(", ") || "–"}</td></tr>`).filter(Boolean).join("") : "";
+  return `<h2>Terrain${fine ? " (lidar)" : ""}</h2>
+${ctx.picture ? `<img src="${ctx.picture}" alt="3D view of the ${R.blocks ? "blocks" : "field"} on the terrain model, relief exaggerated three times" style="width:100%;border-radius:6px;display:block">
+<p class="notes">3D view from the south-west, relief exaggerated ×3. Numbered pins: the probe spots.</p>` : ""}
+${rows ? `<div class="wrap"><table><thead><tr><th>${R.blocks ? "Block" : "Area"}</th><th>Lowest</th><th>Highest</th><th>Difference</th><th>Mean slope</th><th>Probe height</th></tr></thead><tbody>${rows}</tbody></table></div>
+<p class="notes">${escapeHtml(demLabel({ source: R.elevInfo.label, res: R.elevInfo.res }))}. ${fine ? "Ground heights without crops or trees. Water runs towards the low parts of a block, so a probe in the middle of the height range represents it best." : ""}</p>` : ""}`;
+}
+
 // Opens the report in a new tab (to read, print or save as PDF); downloads it if pop-ups are blocked.
-function openReport(R, ctx) {
+// The tab opens straight away (pop-up blockers allow it only during the click) and shows the report once the
+// 3D picture of the blocks is ready, or after 25 s without it.
+async function openReport(R, ctx) {
+  const w = window.open("", "_blank");
+  if (w) w.document.write('<!doctype html><meta charset="utf-8"><title>Preparing the report…</title><p style="font:16px system-ui;padding:24px;color:#5c6b61">Preparing the report and its 3D view of the blocks…</p>');
+  if (ctx.snapshot) ctx.picture = await Promise.race([ctx.snapshot(), sleep(25000).then(() => null)]).catch(() => null);
   const html = reportHtml(R, ctx), url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
-  const w = window.open(url, "_blank");
-  if (!w) download(`${fileBase(ctx)}-report.html`, "text/html", html);
+  if (w && !w.closed) w.location.href = url; else download(`${fileBase(ctx)}-report.html`, "text/html", html);
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 

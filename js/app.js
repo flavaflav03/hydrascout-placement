@@ -767,8 +767,21 @@ async function analyze() {
     const irrigation = readIrrigation();
     if (irrigation.type === "pivot" && (!irrigation.pivot.radius || irrigation.pivot.lat == null)) setStatus("Pivot centre or radius missing: the pivot is ignored for placement.");
 
-    setStatus(`Loading elevation for ${pts.length} points…`);
-    const elev = await fetchElevation(pts, (n) => setStatus(`Loading elevation… ${n}/${pts.length}`));
+    // Elevation: lidar terrain model (IGN LiDAR HD / RGE ALTI in France, terrain tiles elsewhere), or the 90 m model
+    // from Open-Meteo when it cannot be loaded.
+    setStatus("Loading the lidar terrain model…");
+    let elev = null, elevInfo = null;
+    try {
+      const rings = fieldRings(), T = await demForPoints(rings.flat());
+      elev = pts.map((p) => demSample(T, p.lat, p.lon));
+      if (elev.filter((v) => v != null).length < 0.9 * pts.length) throw new Error("terrain model does not cover the field");
+      elevInfo = { label: T.dem.source, res: T.dem.res, relief: ringRelief(T, rings) };
+    } catch (err) {
+      console.warn("lidar terrain", err);
+      setStatus(`Loading elevation for ${pts.length} points…`);
+      elev = await fetchElevation(pts, (n) => setStatus(`Loading elevation… ${n}/${pts.length}`));
+      elevInfo = { label: "Copernicus DEM GLO-90 (via Open-Meteo)", res: 90, relief: null };
+    }
 
     // Soil: SoilGrids has a 250 m grid and a low rate limit, so sample a few spread-out points and interpolate.
     const soilIdx = [pts.reduce((bi, p, i) => (Math.hypot(p.x, p.y) < Math.hypot(pts[bi].x, pts[bi].y) ? i : bi), 0)];
@@ -781,7 +794,7 @@ async function analyze() {
       if (s < soilIdx.length - 1) await sleep(1200);
     }
 
-    S.result = computePlacement({ G, elev, soilSamples, ndvi: S.ndvi, irrigation, request: check ? String(askedBlocks() || S.probes.length) : $("nSensors").value, blocks: drawnBlocks(), fieldFromBlocks: S.fieldFromBlocks, buffer: Math.max(0, +$("buffer").value || 0) });
+    S.result = computePlacement({ G, elev, elevInfo, soilSamples, ndvi: S.ndvi, irrigation, request: check ? String(askedBlocks() || S.probes.length) : $("nSensors").value, blocks: drawnBlocks(), fieldFromBlocks: S.fieldFromBlocks, buffer: Math.max(0, +$("buffer").value || 0) });
     if (check) runCheck(); else renderResult();
     setStatus("");
   } catch (err) {
@@ -806,7 +819,7 @@ function renderResult() {
   const sm = R.summary;
   $("summary").innerHTML = [
     ["Area", `${fmt(R.ha, 2)} ha`], ["Sensors", `${R.sensors.length}`],
-    ["Elevation", `${fmt(sm.eMin, 0)}–${fmt(sm.eMax, 0)} m`], ["Mean slope", `${fmt(sm.fSlope, 1)} %`],
+    ["Elevation", `${fmt(sm.eMin, R.elevInfo && R.elevInfo.res <= 10 ? 1 : 0)}–${fmt(sm.eMax, R.elevInfo && R.elevInfo.res <= 10 ? 1 : 0)} m${R.elevInfo && R.elevInfo.res <= 10 ? " (lidar)" : ""}`], ["Mean slope", `${fmt(sm.fSlope, 1)} %`],
     ["Soil", R.soil ? `${fmt(sm.fClay, 0)} % clay` : "not loaded"], ["NDVI", R.ndvi ? `${fmt(sm.fNdvi, 2)}${R.ndviInfo.date ? ` (${R.ndviInfo.date})` : ""}` : "not used"],
   ].map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("");
   const sel = $("view"), cur = sel.value || "zones";
@@ -1088,7 +1101,8 @@ document.querySelector(".tabs").addEventListener("click", (e) => { const t = e.t
 $("toRoi").addEventListener("click", () => { showTab("roi"); $("panel").scrollTop = 0; $("roiStep").scrollIntoView({ behavior: "smooth" }); });
 
 // ---------- exports ----------
-const exportCtx = () => ({ field: S.field, fieldName: $("fieldName").value.trim(), askedBlocks: askedBlocks(), roi: computeRoi(readRoi()) });
+const exportCtx = () => ({ field: S.field, fieldName: $("fieldName").value.trim(), askedBlocks: askedBlocks(), roi: computeRoi(readRoi()),
+  snapshot: () => View3D.snapshot(view3dOpts()) });
 $("dlReport").onclick = () => S.result && openReport(S.result, exportCtx());
 $("dlReportRoi").onclick = () => { if (S.check) openReport(S.result, checkCtx()); else if (S.result) openReport(S.result, exportCtx()); else { showTab("place"); setStatus("Find the sensor spots (or check your probes) first, then open the report."); } };
 $("dlGpx").onclick = () => S.result && exportGpx(S.result, exportCtx());
@@ -1133,15 +1147,18 @@ $("dlGeo").onclick = () => S.result && exportGeoJson(S.result, exportCtx());
 
 // ---------- 3D view ----------
 // The drawn blocks (or the whole field) on a lidar terrain model, with the probe spots when there are some.
-function open3d() {
-  if (!S.field) return;
+function view3dOpts() {
   const rings = S.fieldFromBlocks ? drawnBlocks().map((b) => ({ name: `Block ${b.name}`, color: blockColor(b), ring: b.ring }))
     : [{ name: S.isExample ? "Example field" : "Field", color: "#ffffff", ring: S.field }];
   const check = appMode() === "check";
   const spots = check ? S.probes.map((p, i) => ({ label: String(i + 1), color: "#2f6b45", lat: p.lat, lon: p.lon }))
     : S.result ? S.result.sensors.map((s, i) => ({ label: String(i + 1), color: zoneColor(s.zone), lat: s.lat, lon: s.lon })) : [];
+  return { rings, spots, ndvi: S.ndvi && S.ndvi.overlay };
+}
+function open3d() {
+  if (!S.field) return;
   if (window.innerWidth <= 760) $("mapwrap").scrollIntoView({ behavior: "smooth" });
-  View3D.open({ rings, spots, ndvi: S.ndvi && S.ndvi.overlay });
+  View3D.open(view3dOpts());
 }
 $("view3d").addEventListener("click", open3d);
 $("view3dRes").addEventListener("click", open3d);
