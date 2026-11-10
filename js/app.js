@@ -886,7 +886,7 @@ function placeSensor(s, lat, lon) {
 // ---------- return on investment ----------
 // The farmer's own water and pumping figures and HSTI's probe price (entered by hand: it depends on the probe
 // type and the sensors fitted). Area and probe count follow the field and the plan until typed over.
-const ROI_FIELDS = { roiArea: "area", roiWater: "waterPerHa", roiWaterPrice: "waterPrice", roiFlow: "flow", roiKw: "kw", roiKwh: "kwhPrice", roiFuel: "fuelLph", roiFuelPrice: "fuelPrice", roiProbes: "probes", roiPrice: "probePrice", roiInstall: "install", roiSub: "sub" };
+const ROI_FIELDS = { roiArea: "area", roiWater: "waterPerHa", roiWaterPrice: "waterPrice", roiFlow: "flow", roiKw: "kw", roiKwh: "kwhPrice", roiFuel: "fuelLph", roiFuelPrice: "fuelPrice", roiProbes: "probes", roiPrice: "probePrice", roiInstall: "install", roiSub: "sub", roiGrant: "grant", roiTimeWeek: "timeWeek", roiWeeks: "weeks", roiHourly: "hourly", roiFertHa: "fertHa", roiFertRate: "fertRate", roiCropHa: "cropHa", roiYield: "yieldRate" };
 function readRoi() {
   const v = (id) => { const x = parseFloat($(id).value); return Number.isFinite(x) ? x : null; };
   const o = { energy: $("roiEnergy").value, rates: [v("roiLo"), v("roiMid"), v("roiHi")] };
@@ -907,9 +907,9 @@ function renderRoi() {
   document.querySelectorAll(".roi-pump").forEach((el) => { el.hidden = e === "none"; });
   const X = computeRoi(readRoi()), out = $("roiOut");
   if (!X) { out.innerHTML = '<p class="hint">Enter the irrigated area and the water used per year to see the savings.</p>'; return; }
-  const mid = X.scenarios[1];
-  out.innerHTML = `<p class="roi-headline">${X.probes ? `<b>${X.probes} probe${X.probes > 1 ? "s" : ""}</b>: ` : ""}about <b>${eur(mid.saved)} saved a year</b> (${num(mid.m3)} m³ of water${mid.hours ? `, ${num(mid.hours)} pumping hours` : ""})${X.priced ? `, paying back <b>${paybackText(mid.payback, true)}</b>` : ""}.</p>
-    <p class="hint">${escapeHtml(roiBasis(X))} ${escapeHtml(roiCostText(X))}</p>${roiTable(X)}`;
+  out.innerHTML = roiSummaryHtml(X) + `<p class="hint">${escapeHtml(roiBasis(X))} ${escapeHtml(roiCostText(X))}</p>
+    <h3 class="sub-h">Each year, three cases</h3><div class="roi-scroll">${roiTable(X)}</div>
+    <h3 class="sub-h">Over ${ROI_YEARS} years, expected case</h3><div class="roi-scroll">${roiYearsCompact(X)}</div>`;
 }
 document.getElementById("roiStep").addEventListener("input", (e) => {
   if (e.target.id === "roiArea" || e.target.id === "roiProbes") e.target.dataset.typed = e.target.value === "" ? "" : "1";
