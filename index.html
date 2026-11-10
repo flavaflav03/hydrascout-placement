@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
-<link rel="stylesheet" href="css/app.css?v=25">
+<link rel="stylesheet" href="css/app.css?v=26">
 </head>
 <body>
 <div id="app">
@@ -119,6 +119,35 @@
         <button type="button" class="link" id="valveReset" hidden>Put the valves back in the middle</button>
       </div>
       <p class="hint" id="layoutHint" hidden>The map shows the equipment layout (layer “Irrigation layout”) worked out from these settings and the blocks: lines along the rows, a header pipe and a valve per block. Drag a valve to where it really is: the header pipe moves to that end of the rows. The 2D plan goes into the placement report too.</p>
+    </section>
+
+    <section class="step">
+      <h2><b></b> Crop and root depth <span class="tag">optional</span></h2>
+      <div class="opt">
+        <label for="crop">Crop</label>
+        <select id="crop">
+          <option value="">Not set</option>
+          <optgroup label="Annual crops"><option value="maize">Maize (grain)</option><option value="maizeSilage">Maize (silage)</option><option value="wheat">Winter wheat</option><option value="barley">Spring barley</option><option value="sorghum">Sorghum</option><option value="sunflower">Sunflower</option><option value="soybean">Soybean</option><option value="sugarbeet">Sugar beet</option><option value="potato">Potato</option><option value="peas">Peas</option><option value="beans">Green beans</option><option value="tomato">Tomato</option><option value="melon">Melon</option><option value="onion">Onion (dry)</option><option value="carrot">Carrot</option><option value="lettuce">Lettuce</option></optgroup>
+          <optgroup label="Orchards, vines, perennials"><option value="vine">Grapevine</option><option value="apple">Apple, pear, cherry</option><option value="stone">Peach, apricot, plum</option><option value="olive">Olive</option><option value="citrus">Citrus</option><option value="walnut">Walnut</option><option value="kiwi">Kiwifruit</option><option value="strawberry">Strawberry</option><option value="alfalfa">Alfalfa (lucerne)</option><option value="grass">Grass, pasture</option></optgroup>
+        </select>
+      </div>
+      <div class="subopts" id="cropAnnual" hidden>
+        <label for="sowing">Sowing date</label><span><input type="date" id="sowing"></span>
+        <label for="cropStage">Crop stage</label>
+        <select id="cropStage">
+          <option value="auto">Auto (date or satellite)</option>
+          <option value="ini">Just sown, emerging</option>
+          <option value="dev">Growing</option>
+          <option value="mid">Full cover</option>
+          <option value="late">Ripening</option>
+        </select>
+      </div>
+      <div class="subopts" id="cropPerennial" hidden>
+        <label for="cropYoung">Plantation age</label>
+        <select id="cropYoung"><option value="">Established (3 years or more)</option><option value="1">Young (less than 3 years)</option></select>
+      </div>
+      <div class="roots" id="rootOut" hidden></div>
+      <p class="hint">The app estimates how deep the roots go from the crop (FAO-56 tables), its stage (from the sowing date, or from the satellite images under “Crop vigour”) and the irrigation, then suggests a HydraScout® probe: length and sensor depths.</p>
     </section>
 
     <section class="step">
@@ -280,14 +309,15 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.2/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
-<script src="js/util.js?v=25"></script>
-<script src="js/icons.js?v=25"></script>
-<script src="js/sources.js?v=25"></script>
-<script src="js/analysis.js?v=25"></script>
-<script src="js/roi.js?v=25"></script>
-<script src="js/layout.js?v=25"></script>
-<script src="js/report.js?v=25"></script>
-<script src="js/terrain3d.js?v=25"></script>
-<script src="js/app.js?v=25"></script>
+<script src="js/util.js?v=26"></script>
+<script src="js/icons.js?v=26"></script>
+<script src="js/sources.js?v=26"></script>
+<script src="js/analysis.js?v=26"></script>
+<script src="js/crop.js?v=26"></script>
+<script src="js/roi.js?v=26"></script>
+<script src="js/layout.js?v=26"></script>
+<script src="js/report.js?v=26"></script>
+<script src="js/terrain3d.js?v=26"></script>
+<script src="js/app.js?v=26"></script>
 </body>
 </html>

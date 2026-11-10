@@ -108,6 +108,7 @@ async function loadSoilHere() {
   KEY.hereFor = id; KEY.here = null; KEY.hereErr = null;
   try { const r = await fetchWrb(c[0], c[1]); if (KEY.hereFor !== id) return; KEY.here = r; if (!r.length) KEY.hereErr = "No soil data here (water, town or outside the map)."; }
   catch (err) { if (KEY.hereFor !== id) return; KEY.hereErr = err.message; KEY.hereFor = null; }
+  if ($("crop").value) renderRoots(true); // a shallow soil group changes the root depth notes
   renderKey();
 }
 
@@ -129,7 +130,7 @@ async function loadElev(rings) {
     ELEV.T = T; ELEV.rows = rel;
   } catch (err) {
     if (ELEV.for !== id) return;
-    console.warn("elevation key", err); ELEV.err = "Could not load the terrain model here."; ELEV.for = null;
+    console.warn("elevation key", err); ELEV.err = "Could not load the terrain model here."; // keep ELEV.for: no retry loop; it tries again when the blocks change
   }
   renderKey();
 }
@@ -524,7 +525,7 @@ function showNdvi(nd) {
   $("ndviMeta").textContent = ov ? `${nd.label} · field NDVI ${fmt(ov.lo, 2)} to ${fmt(ov.hi, 2)}, average ${fmt(ov.mean, 2)}` : `${nd.label} · does not cover this field`;
   renderKey();
 }
-function setNdvi(nd) { S.ndvi = nd; $("ndviClear").hidden = false; showNdvi(nd); if (S.result) setNdviStatus("NDVI updated. Run “Find sensor spots” again to use it."); }
+function setNdvi(nd) { S.ndvi = nd; $("ndviClear").hidden = false; showNdvi(nd); if (typeof renderRoots === "function" && $("crop").value) renderRoots(); if (S.result) setNdviStatus("NDVI updated. Run “Find sensor spots” again to use it."); }
 function clearNdvi(msg) {
   S.ndvi = null; ndviLayer.clearLayers(); $("ndviClear").hidden = true; $("ndviMeta").hidden = true; renderKey();
   if (msg) setNdviStatus(msg);
@@ -599,7 +600,7 @@ $("tAll").addEventListener("click", async () => {
   const todo = S.scenes.filter((s) => !s.nd); let n = 0;
   const one = async (s) => { try { await sceneNdvi(s); } catch (err) { console.warn(err); } $("tHint").textContent = `Loading dates… ${++n}/${todo.length}`; drawTimeline(); };
   for (let i = 0; i < todo.length; i += 2) await Promise.all(todo.slice(i, i + 2).map(one));
-  $("tHint").textContent = "The spots use the date shown."; timelineLabel(); btn.disabled = false;
+  $("tHint").textContent = "The spots use the date shown."; timelineLabel(); btn.disabled = false; renderRoots();
 });
 
 $("sceneBtn").addEventListener("click", async () => {
@@ -661,6 +662,71 @@ function updateIrrigation() {
 }
 ["irrType", "dripEmitter", "dripLine", "dripFlow", "sprSpacing", "pivRadius", "pivSpan", "irrNotes", "rowBearing"].forEach((id) => $(id).addEventListener(id === "irrType" ? "change" : "input", updateIrrigation));
 $("pivCentreBtn").addEventListener("click", () => setMode(S.mode === "pivot" ? null : "pivot"));
+
+// ---------- crop and root depth ----------
+function readCrop() { return { crop: $("crop").value, sowing: $("sowing").value || null, stage: $("cropStage").value, young: !!$("cropYoung").value }; }
+function currentRoots() {
+  const c = readCrop(); if (!c.crop) return null;
+  const sc = S.scenes && S.scenes.length && S.ndvi && S.scenes[TL.idx] && S.scenes[TL.idx].nd === S.ndvi ? S.scenes[TL.idx] : null;
+  const roots = computeRoots({ ...c, irrigated: $("irrType").value !== "none", shown: sc, scenes: sc ? S.scenes : [], soils: KEY.here || [], today: new Date().toISOString().slice(0, 10) });
+  if (!roots) return null;
+  const sug = recommendProbe(roots, c.crop), pk = S.probePick;
+  // A probe picked by hand (length and sensor depths) replaces the suggestion for this crop.
+  const probe = pk && pk.crop === c.crop ? makeProbe(pk.len, pk.depths, { ...sug, custom: true, suggested: sug }) : sug;
+  return { roots, probe };
+}
+S.probePick = store.get("hs.probePick");
+function setProbePick(pk) { S.probePick = pk; store.set("hs.probePick", pk); renderRoots(); }
+function probePickHtml(p) {
+  const sug = p.suggested || p, fam = sug.lengths || [], warn = [];
+  if (!fam.includes(p.lengthCm)) warn.push(`${p.lengthCm} cm is not a usual length for ${sug.family.toLowerCase()} (${fam.join(", ")} cm).`);
+  if (sug.sensors && (p.depthsCm.length < sug.sensors[0] || p.depthsCm.length > sug.sensors[1])) warn.push(`${sug.family} probes usually have ${sug.sensors[0]} to ${sug.sensors[1]} sensors.`);
+  const boxes = [];
+  for (let d = 10; d <= p.lengthCm; d += 10) boxes.push(`<label class="chip${p.depthsCm.includes(d) ? " on" : ""}"><input type="checkbox" data-depth="${d}"${p.depthsCm.includes(d) ? " checked" : ""}>${d}</label>`);
+  return `<div class="probe-pick">
+    <h3 class="sub-h">Probe configuration</h3>
+    <div class="opt"><label for="pLen">Probe length</label><select id="pLen">${ALL_LENGTHS.map((l) => `<option value="${l}"${l === p.lengthCm ? " selected" : ""}>${l} cm${fam.includes(l) ? "" : " (not usual)"}</option>`).join("")}</select></div>
+    <p class="lbl">Sensor depths (cm), ${p.depthsCm.length} of ${MAX_SENSORS} max</p>
+    <div class="chips">${boxes.join("")}</div>
+    <p class="probe-code"><b>${p.code}</b> · ${escapeHtml(p.ref)}</p>
+    ${warn.map((w) => `<p class="hint warn">${escapeHtml(w)}</p>`).join("")}
+    ${p.custom ? `<button type="button" class="link" data-act="probeReset">Back to the suggestion (${sug.code})</button>` : ""}
+  </div>`;
+}
+$("rootOut").addEventListener("change", (e) => {
+  const x = currentRoots(); if (!x) return;
+  const p = x.probe, crop = $("crop").value;
+  if (e.target.id === "pLen") {
+    const len = +e.target.value;
+    setProbePick({ crop, len, depths: sensorDepths(len, [1, MAX_SENSORS]) || [len] });
+  } else if (e.target.dataset.depth) {
+    const d = +e.target.dataset.depth, on = e.target.checked;
+    const depths = on ? p.depthsCm.concat(d) : p.depthsCm.filter((v) => v !== d);
+    if (!depths.length || depths.length > MAX_SENSORS) { e.target.checked = !on; return; }
+    setProbePick({ crop, len: p.lengthCm, depths });
+  }
+});
+$("rootOut").addEventListener("click", (e) => { if (e.target.closest('[data-act="probeReset"]')) setProbePick(null); });
+function renderRoots(fromSoil = false) {
+  const c = readCrop(), k = c.crop && CROPS[c.crop] ? CROPS[c.crop].kind : null;
+  $("cropAnnual").hidden = k !== "annual"; $("cropPerennial").hidden = k !== "perennial";
+  store.set("hs.crop", c);
+  if (c.crop && S.field && !S.isExample && !fromSoil) loadSoilHere(); // the soil group can show a layer that stops the roots
+  const out = $("rootOut"), x = currentRoots();
+  out.hidden = !x; if (!x) return;
+  const r = x.roots, p = x.probe, pct = (cm) => `${Math.min(100, (cm / Math.max(r.maxCm + 20, 60)) * 100).toFixed(1)}%`;
+  out.innerHTML = `<dl class="summary">
+      <div><dt>Roots now</dt><dd>${r.nowCm != null ? `${r.nowCm} cm` : r.kind === "perennial" ? `${r.maxCm} cm` : "–"}</dd></div>
+      <div><dt>Deepest${r.kind === "annual" ? " this season" : ""}</dt><dd>${r.maxCm} cm</dd></div>
+      <div><dt>${p.custom ? "Chosen probe" : "Suggested probe"}</dt><dd>${p.code}<br>${p.lengthCm} cm · ${p.depthsCm.length} sensor${p.depthsCm.length > 1 ? "s" : ""}</dd></div>
+    </dl>
+    <div class="root-bar" aria-hidden="true" title="Soil profile: light green = deepest roots, dark green = top half where most water is taken, blue line = roots now, black bar = suggested probe"><span class="active" style="height:${pct(r.activeCm)}"></span><span class="all" style="height:${pct(r.maxCm)}"></span>${r.nowCm != null ? `<span class="now" style="top:${pct(r.nowCm)}"></span>` : ""}<span class="probe" style="height:${pct(p.lengthCm)}"></span></div>
+    <ul class="notes">${rootsSummary(r, p).map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>
+    ${probePickHtml(p)}
+    <p class="hint">Suggested lengths and sensor counts follow the HSTI catalogue (${escapeHtml(p.family)}). Change the length or tick the sensor depths to build another configuration: the product code follows.</p>`;
+}
+["crop", "sowing", "cropStage", "cropYoung"].forEach((id) => $(id).addEventListener(id === "sowing" ? "input" : "change", renderRoots));
+$("irrType").addEventListener("change", renderRoots);
 
 // ---------- irrigation equipment layout ----------
 // Worked out in js/layout.js from the irrigation inputs and the blocks (or the whole field), drawn on the map,
@@ -878,7 +944,8 @@ $("nBlocks").addEventListener("input", () => {
 $("blockList").addEventListener("input", (e) => {
   const i = e.target.dataset.i; if (i == null) return;
   const b = S.blocks[+i]; b.name = e.target.value.trim() || nextBlockName(); clearResult(); store.set("hs.blocks", S.blocks);
-  const body = elevKey() + soilKey() + ndviKey() + layoutKey();
+  if (b.ring) blockLayer.getLayers()[drawnBlocks().indexOf(b)].setTooltipContent(escapeHtml(b.name));
+  renderKey();
 });
 $("blockList").addEventListener("click", (e) => {
   if (e.target.dataset.field) { setMode(S.mode === "draw" ? null : "draw"); if (S.mode && window.innerWidth <= 760) $("mapwrap").scrollIntoView({ behavior: "smooth" }); return; }
@@ -1281,7 +1348,7 @@ document.querySelector(".tabs").addEventListener("click", (e) => { const t = e.t
 $("toRoi").addEventListener("click", () => { showTab("roi"); $("panel").scrollTop = 0; $("roiStep").scrollIntoView({ behavior: "smooth" }); });
 
 // ---------- exports ----------
-const exportCtx = () => ({ field: S.field, fieldName: $("fieldName").value.trim(), askedBlocks: askedBlocks(), roi: computeRoi(readRoi()), layout: layoutPlan(),
+const exportCtx = () => ({ roots: currentRoots(), field: S.field, fieldName: $("fieldName").value.trim(), askedBlocks: askedBlocks(), roi: computeRoi(readRoi()), layout: layoutPlan(),
   snapshot: () => View3D.snapshot(view3dOpts()) });
 $("dlReport").onclick = () => S.result && openReport(S.result, exportCtx());
 $("dlReportRoi").onclick = () => { if (S.check) openReport(S.result, checkCtx()); else if (S.result) openReport(S.result, exportCtx()); else { showTab("place"); setStatus("Find the sensor spots (or check your probes) first, then open the report."); } };
@@ -1312,6 +1379,9 @@ $("dlGeo").onclick = () => S.result && exportGeoJson(S.result, exportCtx());
     if (si.rowBearing != null) $("rowBearing").value = si.rowBearing;
   }
   updateIrrigation();
+  const sc = store.get("hs.crop");
+  if (sc && CROPS[sc.crop]) { $("crop").value = sc.crop; $("sowing").value = sc.sowing || ""; $("cropStage").value = sc.stage || "auto"; $("cropYoung").value = sc.young ? "1" : ""; }
+  renderRoots();
   const nb = store.get("hs.nBlocks"); if (nb >= 1) $("nBlocks").value = nb;
   const sb = store.get("hs.blocks");
   if (Array.isArray(sb)) S.blocks = sb.filter((b) => b && typeof b.name === "string").map((b) => ({ name: b.name, ring: Array.isArray(b.ring) && b.ring.length >= 3 ? b.ring : null, valve: Array.isArray(b.valve) ? b.valve : null }));

@@ -84,6 +84,7 @@ function reportHtml(R, ctx) {
     ["Soil", R.soil ? `ISRIC SoilGrids 2.0, 0–60 cm: about ${fmt(sm.fClay, 0)}% clay on average` : "Not loaded"],
     ["NDVI", R.ndviInfo ? `${escapeHtml(R.ndviInfo.label)}${R.ndviInfo.cloud != null ? ` (scene cloud cover ${fmt(R.ndviInfo.cloud, 0)}%)` : ""}, field average ${fmt(sm.fNdvi, 2)}` : "Not used"],
     ["Irrigation", escapeHtml(irrigationSummary(R.irrigation))],
+    ...(ctx.roots ? [["Crop", `${escapeHtml(ctx.roots.roots.crop)}${ctx.roots.roots.stageLabel ? `, ${escapeHtml(ctx.roots.roots.stageLabel)}` : ""}`]] : []),
     ...(ctx.askedBlocks ? [["Irrigation blocks", `${ctx.askedBlocks} according to the grower, so ${ctx.askedBlocks} probe${ctx.askedBlocks > 1 ? "s" : ""} (one per block)${R.blocks && R.blocks.length !== ctx.askedBlocks ? `; ${R.blocks.length} drawn on the map` : ""}`]] : []),
     [C ? "Recommended" : "Sensors", `${R.sensors.length}${R.blocks ? ` for ${R.blocks.length} irrigation block${R.blocks.length > 1 ? "s" : ""} (one per block${R.sensors.some((s) => s.optional) ? ", plus optional ones for uneven blocks" : ""})` : ""}, at least ${R.buffer} m from the field edge${R.blocks ? " and the block borders" : ""} where possible`],
   ];
@@ -128,6 +129,7 @@ ${C ? `<h2>Installed probes</h2><div class="wrap"><table><thead><tr><th>Probe</t
     <p class="mono">${a.lat.toFixed(6)}, ${a.lon.toFixed(6)}${a.serial ? ` · device ${escapeHtml(a.serial)}` : ""}</p><ul>${a.lines.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>${a.suggest ? `<p><b>${escapeHtml(a.suggest)}</b>${a.ref && a.sev && a.move >= 3 ? ` <a href="https://www.google.com/maps/dir/?api=1&destination=${a.ref.s.lat.toFixed(6)},${a.ref.s.lon.toFixed(6)}">directions</a>` : ""}</p>` : ""}</section>`).join("")}
 ${C.missing.length || C.optional.length ? `<h2>Missing probes</h2><ul>${C.missing.map((s) => `<li>${s.block != null ? `Block ${escapeHtml(s.block)}` : `Zone ${s.zone + 1}`} has no probe: recommended spot ${s.name}, ${s.lat.toFixed(6)}, ${s.lon.toFixed(6)}.</li>`).concat(C.optional.map((s) => `<li>Block ${escapeHtml(s.block)} is uneven (${escapeHtml(s.uneven)}): optional second probe at ${s.name}, ${s.lat.toFixed(6)}, ${s.lon.toFixed(6)}.</li>`)).join("")}</ul>` : ""}
 <h2>Recommended spots, for comparison</h2>` : "<h2>Sensor positions</h2>"}<div class="wrap"><table><thead><tr><th>Sensor</th><th>Latitude</th><th>Longitude</th><th>${R.blocks ? "Block" : "Zone"} (share)</th><th>Elevation</th><th>Clay</th><th>NDVI</th></tr></thead><tbody>${table}</tbody></table></div>
+${ctx.roots ? `<h2>Root zone and probe length</h2><ul>${rootsSummary(ctx.roots.roots, ctx.roots.probe).map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>` : ""}
 ${C ? "" : `<h2>Why each spot was chosen</h2>${cards}`}
 ${X && !C ? `<h2>Return on investment</h2><p>${escapeHtml(roiBasis(X))} ${escapeHtml(roiCostText(X))}</p><h3>Each year, three cases</h3><div class="wrap">${roiTable(X)}</div>
 <h3>Over ${ROI_YEARS} years, expected case</h3><div class="wrap">${roiYearsTable(X)}</div>
