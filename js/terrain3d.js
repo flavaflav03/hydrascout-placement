@@ -296,7 +296,7 @@ const View3D = {
   badge(text, color) {
     const c = document.createElement("canvas"); c.width = c.height = 128; const x = c.getContext("2d");
     x.beginPath(); x.arc(64, 64, 54, 0, Math.PI * 2); x.fillStyle = color; x.fill(); x.lineWidth = 12; x.strokeStyle = "#fff"; x.stroke();
-    x.fillStyle = "#fff"; x.font = "700 60px Barlow, system-ui, sans-serif"; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText(text, 64, 68);
+    x.fillStyle = "#fff"; x.font = "700 60px Asap, system-ui, sans-serif"; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText(text, 64, 68);
     const t = new THREE.CanvasTexture(c); if (THREE.sRGBEncoding) t.encoding = THREE.sRGBEncoding; return t;
   },
 

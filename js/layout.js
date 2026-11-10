@@ -175,23 +175,23 @@ function layoutSvg(L, { title = "", probes = [] } = {}) {
     if (a.feed) top.push(`<line x1="${X(a.feed[0][0])}" y1="${Y(a.feed[0][1])}" x2="${X(a.feed[1][0])}" y2="${Y(a.feed[1][1])}" stroke="${C.header}" stroke-width="2.5" stroke-dasharray="6 3"/>`);
     if (a.valve) top.push(`<g transform="translate(${X(a.valve[0])},${Y(a.valve[1])})"><rect x="-7" y="-7" width="14" height="14" rx="2" fill="${C.valve}" stroke="#fff" stroke-width="2"/><path d="M-4,-4 L4,4 M-4,4 L4,-4" stroke="#fff" stroke-width="1.6"/></g>`);
   }
-  for (const a of L.areas) parts.push(`<polygon points="${a.xy.map(pt).join(" ")}" fill="none" stroke="${a.color === "#ffffff" ? "#1d2a22" : a.color}" stroke-width="2"/>`);
+  for (const a of L.areas) parts.push(`<polygon points="${a.xy.map(pt).join(" ")}" fill="none" stroke="${a.color === "#ffffff" ? "#1e2d40" : a.color}" stroke-width="2"/>`);
   parts.push(...top);
-  if (L.areas.length > 1 || L.areas[0].name !== "Field") for (const a of L.areas) { const m = [mean(a.xy.map((p) => p[0])), mean(a.xy.map((p) => p[1]))]; parts.push(`<text x="${X(m[0])}" y="${Y(m[1])}" text-anchor="middle" font-size="15" font-weight="700" fill="#1d2a22" stroke="#fff" stroke-width="4" paint-order="stroke">${escapeHtml(a.name)}</text>`); }
+  if (L.areas.length > 1 || L.areas[0].name !== "Field") for (const a of L.areas) { const m = [mean(a.xy.map((p) => p[0])), mean(a.xy.map((p) => p[1]))]; parts.push(`<text x="${X(m[0])}" y="${Y(m[1])}" text-anchor="middle" font-size="15" font-weight="700" fill="#1e2d40" stroke="#fff" stroke-width="4" paint-order="stroke">${escapeHtml(a.name)}</text>`); }
   probes.forEach((p) => { const [px, py] = P.fwd(p.lat, p.lon); parts.push(`<g><circle cx="${X(px)}" cy="${Y(py)}" r="10" fill="${p.color}" stroke="#fff" stroke-width="2.5"/><text x="${X(px)}" y="${(+Y(py) + 4).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">${escapeHtml(p.label)}</text></g>`); });
   const nice = [5, 10, 20, 50, 100, 200, 500, 1000].find((m) => m * sc > 70) || 1000;
   const plan = `<g>${parts.join("")}</g>
-    <g transform="translate(${W - 26},30)"><path d="M0,-16 L7,6 L0,1 L-7,6 Z" fill="#1d2a22"/><text y="20" text-anchor="middle" font-size="12" fill="#1d2a22">N</text></g>
-    <g transform="translate(14,${H - 14})"><rect width="${(nice * sc).toFixed(1)}" height="4" fill="#1d2a22"/><text y="-6" font-size="11" fill="#1d2a22">${nice} m</text></g>`;
+    <g transform="translate(${W - 26},30)"><path d="M0,-16 L7,6 L0,1 L-7,6 Z" fill="#1e2d40"/><text y="20" text-anchor="middle" font-size="12" fill="#1e2d40">N</text></g>
+    <g transform="translate(14,${H - 14})"><rect width="${(nice * sc).toFixed(1)}" height="4" fill="#1e2d40"/><text y="-6" font-size="11" fill="#1e2d40">${nice} m</text></g>`;
   // Key and close-up under the plan.
-  const keyItems = layoutKeyItems(L).map(([sym, txt], i) => `<g transform="translate(${16 + (i % 2) * 300},${22 + Math.floor(i / 2) * 22})">${sym}<text x="30" y="4" font-size="12" fill="#1d2a22">${escapeHtml(txt)}</text></g>`).join("");
+  const keyItems = layoutKeyItems(L).map(([sym, txt], i) => `<g transform="translate(${16 + (i % 2) * 300},${22 + Math.floor(i / 2) * 22})">${sym}<text x="30" y="4" font-size="12" fill="#1e2d40">${escapeHtml(txt)}</text></g>`).join("");
   const keyH = 22 * Math.ceil(layoutKeyItems(L).length / 2) + 26, detail = layoutDetail(L), DH = detail ? 170 : 0, NH = 16 * (notes.length + (L.assumed.length ? 1 : 0)) + (notes.length || L.assumed.length ? 10 : 0);
-  const txt = [...notes, ...(L.assumed.length ? [`Not entered, so assumed: ${L.assumed.join(", ")}.`] : [])].map((t, i) => `<text x="16" y="${16 + i * 16}" font-size="11.5" fill="#5c6b61">${escapeHtml(t)}</text>`).join("");
+  const txt = [...notes, ...(L.assumed.length ? [`Not entered, so assumed: ${L.assumed.join(", ")}.`] : [])].map((t, i) => `<text x="16" y="${16 + i * 16}" font-size="11.5" fill="#5a6f86">${escapeHtml(t)}</text>`).join("");
   const total = H + keyH + DH + NH + (title ? 30 : 0);
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${total}" width="${W}" height="${total}" role="img" aria-label="Plan of the irrigation equipment" style="max-width:100%;height:auto;background:#fff;font-family:system-ui,-apple-system,'Segoe UI',sans-serif">
     <defs><marker id="lyArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="${C.machine}"/></marker></defs>
     <rect width="${W}" height="${total}" fill="#fff"/>
-    ${title ? `<text x="16" y="22" font-size="16" font-weight="700" fill="#1d2a22">${escapeHtml(title)}</text>` : ""}
+    ${title ? `<text x="16" y="22" font-size="16" font-weight="700" fill="#1e2d40">${escapeHtml(title)}</text>` : ""}
     <g transform="translate(0,${title ? 30 : 0})"><rect width="${W}" height="${H}" fill="#f3f5f1"/>${plan}</g>
     <g transform="translate(0,${H + (title ? 30 : 0)})">${keyItems}</g>
     ${detail ? `<g transform="translate(16,${H + keyH + (title ? 30 : 0)})">${detail}</g>` : ""}
@@ -222,25 +222,25 @@ function layoutKeyItems(L) {
 // Close-up of a few metres at true scale, with the spacings marked.
 function layoutDetail(L) {
   const irr = L.irr, C = LAYOUT_COLORS;
-  const dim = (x1, y1, x2, y2, label, vertical = false) => `<g stroke="#5c6b61" stroke-width="1" fill="#5c6b61"><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" marker-start="url(#lyDim)" marker-end="url(#lyDim)"/></g><text x="${vertical ? x1 + 6 : (x1 + x2) / 2}" y="${vertical ? (y1 + y2) / 2 + 4 : y1 - 5}" ${vertical ? "" : 'text-anchor="middle"'} font-size="11" fill="#1d2a22">${label}</text>`;
-  const defs = `<defs><marker id="lyDim" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 Z" fill="#5c6b61"/></marker></defs>`;
+  const dim = (x1, y1, x2, y2, label, vertical = false) => `<g stroke="#5a6f86" stroke-width="1" fill="#5a6f86"><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" marker-start="url(#lyDim)" marker-end="url(#lyDim)"/></g><text x="${vertical ? x1 + 6 : (x1 + x2) / 2}" y="${vertical ? (y1 + y2) / 2 + 4 : y1 - 5}" ${vertical ? "" : 'text-anchor="middle"'} font-size="11" fill="#1e2d40">${label}</text>`;
+  const defs = `<defs><marker id="lyDim" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 Z" fill="#5a6f86"/></marker></defs>`;
   if (L.kind === "drip") {
     const e = (irr.emitter || LAYOUT_DEFAULTS.emitter) / 100, s = (irr.lineSpacing || LAYOUT_DEFAULTS.lineSpacing) / 100;
     const s2 = Math.min(55 / s, 360 / Math.max(e * 6, 1.5)), w = Math.min(440, Math.max(160, e * 8 * s2)), lines = [0, 1, 2];
     const g = lines.map((i) => { const y = 34 + i * s * s2; let dots = ""; for (let x = (e * s2) / 2; x < w; x += e * s2) dots += `<circle cx="${(20 + x).toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="${C.header}"/>`; return `<line x1="20" y1="${y.toFixed(1)}" x2="${20 + w}" y2="${y.toFixed(1)}" stroke="${C.lateral}" stroke-width="3"/>${dots}`; }).join("");
     const ex = 20 + (e * s2) / 2;
-    return `${defs}<text y="0" font-size="12" font-weight="600" fill="#1d2a22">Close-up, true scale</text>${g}
+    return `${defs}<text y="0" font-size="12" font-weight="600" fill="#1e2d40">Close-up, true scale</text>${g}
       ${dim(ex, 22, ex + e * s2, 22, `${fmt(e * 100, 0)} cm`)}${dim(w + 34, 34, w + 34, 34 + s * s2, `${fmt(s * 100, 0)} cm`, true)}
-      <text x="${w + 90}" y="56" font-size="11.5" fill="#5c6b61">Each dot is an emitter${irr.flow ? ` (${irr.flow} L/h)` : ""}.</text>
-      <text x="${w + 90}" y="74" font-size="11.5" fill="#5c6b61">Probes usually go in the row, in the</text><text x="${w + 90}" y="90" font-size="11.5" fill="#5c6b61">wetted zone of an emitter.</text>`;
+      <text x="${w + 90}" y="56" font-size="11.5" fill="#5a6f86">Each dot is an emitter${irr.flow ? ` (${irr.flow} L/h)` : ""}.</text>
+      <text x="${w + 90}" y="74" font-size="11.5" fill="#5a6f86">Probes usually go in the row, in the</text><text x="${w + 90}" y="90" font-size="11.5" fill="#5a6f86">wetted zone of an emitter.</text>`;
   }
   if (L.kind === "micro" || L.kind === "sprinkler") {
     const s = irr.spacing || LAYOUT_DEFAULTS[L.kind], s2 = 50 / s;
     let g = ""; for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) { const cx = 40 + i * s * s2, cy = 60 + j * s * s2; g += `<circle cx="${cx}" cy="${cy}" r="${s * s2}" fill="${C.wet}" fill-opacity="0.12" stroke="${C.wet}" stroke-width=".8"/>`; }
     for (let j = 0; j < 2; j++) g += `<line x1="20" y1="${60 + j * s * s2}" x2="${60 + 2 * s * s2}" y2="${60 + j * s * s2}" stroke="${C.lateral}" stroke-width="3"/>`;
     for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) g += `<circle cx="${40 + i * s * s2}" cy="${60 + j * s * s2}" r="4" fill="#fff" stroke="${C.head}" stroke-width="2"/>`;
-    return `${defs}<text y="0" font-size="12" font-weight="600" fill="#1d2a22">Close-up</text>${g}${dim(40, 30, 40 + s * s2, 30, `${fmt(s, 0)} m`)}${dim(40 + 2 * s * s2 + 34, 60, 40 + 2 * s * s2 + 34, 60 + s * s2, `${fmt(s, 0)} m`, true)}
-      <text x="${150 + 2 * s * s2}" y="70" font-size="11.5" fill="#5c6b61">Heads ${fmt(s, 0)} m apart, each one wetting up to its</text><text x="${150 + 2 * s * s2}" y="86" font-size="11.5" fill="#5c6b61">neighbours (head-to-head). A probe goes between</text><text x="${150 + 2 * s * s2}" y="102" font-size="11.5" fill="#5c6b61">heads, away from the pipe and the head itself.</text>`;
+    return `${defs}<text y="0" font-size="12" font-weight="600" fill="#1e2d40">Close-up</text>${g}${dim(40, 30, 40 + s * s2, 30, `${fmt(s, 0)} m`)}${dim(40 + 2 * s * s2 + 34, 60, 40 + 2 * s * s2 + 34, 60 + s * s2, `${fmt(s, 0)} m`, true)}
+      <text x="${150 + 2 * s * s2}" y="70" font-size="11.5" fill="#5a6f86">Heads ${fmt(s, 0)} m apart, each one wetting up to its</text><text x="${150 + 2 * s * s2}" y="86" font-size="11.5" fill="#5a6f86">neighbours (head-to-head). A probe goes between</text><text x="${150 + 2 * s * s2}" y="102" font-size="11.5" fill="#5a6f86">heads, away from the pipe and the head itself.</text>`;
   }
   return "";
 }

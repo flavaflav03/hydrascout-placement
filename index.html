@@ -3,19 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Hydrascout Placement</title>
+<title>HydraScout Placement</title>
+<link rel="icon" type="image/svg+xml" href="assets/hydrascout-pictogram.svg">
+<meta name="theme-color" content="#0380B8">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Asap:wght@400;500;600;700&family=League+Spartan:wght@600;700&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
-<link rel="stylesheet" href="css/app.css?v=26">
+<link rel="stylesheet" href="css/app.css?v=27">
 </head>
 <body>
 <div id="app">
   <aside id="panel" data-mode="">
     <header>
-      <h1>Hydrascout Placement</h1>
-      <p>Find the most representative spots in a field to install Hydrascout soil &amp; temperature sensors.</p>
+      <div class="brand-logo" id="brandLogo" role="img" aria-label="HydraScout, soil moisture management by HSTI"></div>
+      <h1>Placement tool</h1>
+      <p>Find how many HydraScout probes a farm needs and the most representative spot for each one.</p>
     </header>
     <section class="mode-pick" id="modePick" aria-labelledby="modeQ">
       <h2 id="modeQ">What do you want to do?</h2>
@@ -47,7 +50,7 @@
       <p class="hint">No GPS on a device? Place it by hand, or import a CSV (lat, lon columns), GPX, KML or GeoJSON file. Drag a probe on the map to correct its position.</p>
     </section>
 
-    <section class="step">
+    <section class="step" id="stepField">
       <h2><b></b> Find the field</h2>
       <form class="row search" id="searchForm" role="search">
         <div class="search-box">
@@ -59,18 +62,14 @@
       <div class="status" id="searchStatus" hidden></div>
     </section>
 
-    <section class="step">
+    <section class="step" id="stepBlocks">
       <h2><b></b> Your irrigation blocks</h2>
       <div class="opt">
         <label for="nBlocks">How many irrigation blocks do you have?</label>
         <input type="number" id="nBlocks" min="1" max="50" step="1" inputmode="numeric" placeholder="e.g. 4">
       </div>
-      <p class="hint">A block is a part of the farm watered on its own (one valve or one sector). HSTI recommends one probe per block. Not sure? Leave it empty, draw the whole field under “Draw the blocks” and the app suggests a number from its size.</p>
+      <p class="hint">A block is a part of the farm watered on its own (one valve or one sector). HSTI recommends one probe per block. Not sure? Leave it empty, draw the whole field below and the app suggests a number from its size.</p>
       <p class="need" id="needLine" hidden></p>
-    </section>
-
-    <section class="step">
-      <h2><b></b> Draw the blocks</h2>
       <p class="field-info" id="blocksSummary"></p>
       <ul class="block-list" id="blockList"></ul>
       <div class="row">
@@ -82,7 +81,44 @@
       <p class="hint" id="drawHint">Press <b>Draw borders</b> on a block, tap its corners on the map, then Finish. <b>3D view</b> shows the blocks on the lidar terrain model, to spot slopes, hollows and rises. The blocks together are the field: crop vigour, soil and the probe spots all use them. You can also import them from a GeoJSON or KML file (one polygon per block, e.g. from your farm software or Google Earth).</p>
     </section>
 
-    <section class="step">
+    <div class="group-h" id="refineHead"><b>Refine the recommendation</b><span>Optional steps: each one makes the spots more precise.</span></div>
+
+    <section class="step" id="stepVigour" data-optional>
+      <h2><b></b> Crop vigour and soil <span class="tag rec">recommended</span></h2>
+      <div class="row">
+        <button id="sceneBtn" type="button" disabled data-icon="gallery">Find satellite images</button>
+        <label class="btn file" data-icon="folder">Upload NDVI GeoTIFF<input type="file" id="ndviFile" accept=".tif,.tiff"></label>
+        <button id="ndviClear" type="button" hidden data-icon="trash">Remove NDVI</button>
+      </div>
+      <div class="timeline" id="sceneRow" hidden>
+        <div class="row tl-controls">
+          <button type="button" id="tPrev" aria-label="Previous date" data-icon="chevronLeft"></button>
+          <input type="range" id="tRange" min="0" max="0" value="0" aria-label="Image date">
+          <button type="button" id="tNext" aria-label="Next date" data-icon="chevronRight"></button>
+          <button type="button" id="tPlay" data-icon="play">Play</button>
+        </div>
+        <div class="tl-date" id="tDate"></div>
+        <svg id="tChart" class="tl-chart" viewBox="0 0 320 110" role="img" aria-label="Field average NDVI over time"></svg>
+        <div class="row tl-foot">
+          <button type="button" id="tAll" data-icon="calendar">Load all dates</button>
+          <span class="hint" id="tHint">The spots use the date shown.</span>
+        </div>
+      </div>
+      <p class="ndvi-meta" id="ndviMeta" hidden></p>
+      <p class="hint" id="ndviInfo">Recommended. The app searches free Sentinel-2 images (10 m) of the last 14 months, skips cloudy ones and picks the clearest image with full crop cover. Use the timeline to see how the field changes through the season. You can also upload your own NDVI map from a drone.</p>
+      <div class="status" id="ndviStatus" hidden></div>
+      <div class="opt">
+        <label for="soilMap">Soil map</label>
+        <select id="soilMap">
+          <option value="off">Off</option>
+          <option value="wrb">Soil type (WRB)</option>
+          <option value="clay">Clay content, 15–30 cm</option>
+        </select>
+      </div>
+      <p class="hint" id="soilHint">SoilGrids 250 m maps, shown only inside your blocks (or the whole field) once they are drawn. They show regional patterns, so expect only a few cells over one field. The key is on the map; tap the map to see the soil type and texture at a spot, even with the soil map off. For the detailed French soil map, open the <a id="soilLink" href="https://cartes.gouv.fr/" target="_blank" rel="noopener">carte des sols on cartes.gouv.fr</a> and click the field.</p>
+    </section>
+
+    <section class="step" id="stepIrr" data-optional>
       <h2><b></b> Irrigation equipment <span class="tag">optional</span></h2>
       <div class="opt">
         <label for="irrType">Irrigation equipment</label>
@@ -121,7 +157,7 @@
       <p class="hint" id="layoutHint" hidden>The map shows the equipment layout (layer “Irrigation layout”) worked out from these settings and the blocks: lines along the rows, a header pipe and a valve per block. Drag a valve to where it really is: the header pipe moves to that end of the rows. The 2D plan goes into the placement report too.</p>
     </section>
 
-    <section class="step">
+    <section class="step" id="stepCrop" data-optional>
       <h2><b></b> Crop and root depth <span class="tag">optional</span></h2>
       <div class="opt">
         <label for="crop">Crop</label>
@@ -150,42 +186,7 @@
       <p class="hint">The app estimates how deep the roots go from the crop (FAO-56 tables), its stage (from the sowing date, or from the satellite images under “Crop vigour”) and the irrigation, then suggests a HydraScout® probe: length and sensor depths.</p>
     </section>
 
-    <section class="step">
-      <h2><b></b> Crop vigour and soil</h2>
-      <div class="row">
-        <button id="sceneBtn" type="button" disabled data-icon="gallery">Find satellite images</button>
-        <label class="btn file" data-icon="folder">Upload NDVI GeoTIFF<input type="file" id="ndviFile" accept=".tif,.tiff"></label>
-        <button id="ndviClear" type="button" hidden data-icon="trash">Remove NDVI</button>
-      </div>
-      <div class="timeline" id="sceneRow" hidden>
-        <div class="row tl-controls">
-          <button type="button" id="tPrev" aria-label="Previous date" data-icon="chevronLeft"></button>
-          <input type="range" id="tRange" min="0" max="0" value="0" aria-label="Image date">
-          <button type="button" id="tNext" aria-label="Next date" data-icon="chevronRight"></button>
-          <button type="button" id="tPlay" data-icon="play">Play</button>
-        </div>
-        <div class="tl-date" id="tDate"></div>
-        <svg id="tChart" class="tl-chart" viewBox="0 0 320 110" role="img" aria-label="Field average NDVI over time"></svg>
-        <div class="row tl-foot">
-          <button type="button" id="tAll" data-icon="calendar">Load all dates</button>
-          <span class="hint" id="tHint">The spots use the date shown.</span>
-        </div>
-      </div>
-      <p class="ndvi-meta" id="ndviMeta" hidden></p>
-      <p class="hint" id="ndviInfo">Recommended. The app searches free Sentinel-2 images (10 m) of the last 14 months, skips cloudy ones and picks the clearest image with full crop cover. Use the timeline to see how the field changes through the season. You can also upload your own NDVI map from a drone.</p>
-      <div class="status" id="ndviStatus" hidden></div>
-      <div class="opt">
-        <label for="soilMap">Soil map</label>
-        <select id="soilMap">
-          <option value="off">Off</option>
-          <option value="wrb">Soil type (WRB)</option>
-          <option value="clay">Clay content, 15–30 cm</option>
-        </select>
-      </div>
-      <p class="hint" id="soilHint">SoilGrids 250 m maps, shown only inside your blocks (or the whole field) once they are drawn. They show regional patterns, so expect only a few cells over one field. The key is on the map; tap the map to see the soil type and texture at a spot, even with the soil map off. For the detailed French soil map, open the <a id="soilLink" href="https://cartes.gouv.fr/" target="_blank" rel="noopener">carte des sols on cartes.gouv.fr</a> and click the field.</p>
-    </section>
-
-    <section class="step">
+    <section class="step" id="stepSpots">
       <h2><b></b> <span data-only="new">Sensor spots</span><span data-only="check">Check the positions</span></h2>
       <div class="opt">
         <label for="nSensors" data-only="new">Number of sensors</label>
@@ -243,7 +244,7 @@
 
     <section class="step" id="roiStep">
       <h2>Return on investment</h2>
-      <p class="hint">With a Hydrascout probe the farmer irrigates on what the soil really says, not by feel: typically <b>10–30% less water</b>, with the pumping hours, electricity or diesel that go with it, fewer trips to check the fields and healthier crops. Ask the farmer for their own figures: the closer they are, the more convincing the result.</p>
+      <p class="hint">With a HydraScout probe the farmer irrigates on what the soil really says, not by feel: typically <b>10–30% less water</b>, with the pumping hours, electricity or diesel that go with it, fewer trips to check the fields and healthier crops. Ask the farmer for their own figures: the closer they are, the more convincing the result.</p>
       <h3 class="sub-h">Water</h3>
       <div class="subopts">
         <label for="roiArea">Irrigated area</label><span><input type="number" id="roiArea" min="0" step="0.1"><span class="unit">ha</span></span>
@@ -298,7 +299,7 @@
       <div class="row"><button type="button" class="primary" id="dlReportRoi" data-icon="paper">Open placement report</button></div>
     </section>
 
-    <footer>Data: elevation and relief IGN LiDAR HD / RGE ALTI (France), AWS terrain tiles elsewhere, Copernicus DEM GLO-90 via Open-Meteo as a fallback, Esri hillshade · soil ISRIC SoilGrids 2.0 · NDVI Copernicus Sentinel-2 via Earth Search (AWS) · address search IGN Géoplateforme (Base Adresse Nationale) and OpenStreetMap Nominatim · imagery Esri. Recommendations are a starting point: check each spot on the ground before installing.</footer>
+    <footer><p class="disclaimer">Recommendations are a starting point: check each spot on the ground before installing.</p><details><summary>Data sources</summary><p>Elevation and relief IGN LiDAR HD / RGE ALTI (France), AWS terrain tiles elsewhere, Copernicus DEM GLO-90 via Open-Meteo as a fallback, Esri hillshade · soil ISRIC SoilGrids 2.0 · NDVI Copernicus Sentinel-2 via Earth Search (AWS) · address search IGN Géoplateforme (Base Adresse Nationale) and OpenStreetMap Nominatim · imagery Esri.</p></details></footer>
   </aside>
   <div id="mapwrap">
     <div id="map"></div>
@@ -309,15 +310,17 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.2/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
-<script src="js/util.js?v=26"></script>
-<script src="js/icons.js?v=26"></script>
-<script src="js/sources.js?v=26"></script>
-<script src="js/analysis.js?v=26"></script>
-<script src="js/crop.js?v=26"></script>
-<script src="js/roi.js?v=26"></script>
-<script src="js/layout.js?v=26"></script>
-<script src="js/report.js?v=26"></script>
-<script src="js/terrain3d.js?v=26"></script>
-<script src="js/app.js?v=26"></script>
+<script src="js/util.js?v=27"></script>
+<script src="js/brand.js?v=27"></script>
+<script src="js/ui.js?v=27"></script>
+<script src="js/icons.js?v=27"></script>
+<script src="js/sources.js?v=27"></script>
+<script src="js/analysis.js?v=27"></script>
+<script src="js/crop.js?v=27"></script>
+<script src="js/roi.js?v=27"></script>
+<script src="js/layout.js?v=27"></script>
+<script src="js/report.js?v=27"></script>
+<script src="js/terrain3d.js?v=27"></script>
+<script src="js/app.js?v=27"></script>
 </body>
 </html>

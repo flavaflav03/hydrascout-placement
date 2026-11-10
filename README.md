@@ -1,6 +1,6 @@
-# Hydrascout Placement
+# HydraScout Placement
 
-A lightweight web app that suggests where to install Hydrascout soil & temperature sensors (HSTI France) in a field.
+A lightweight web app that suggests where to install HydraScout soil & temperature sensors (HSTI France) in a field.
 
 It runs entirely in the browser: no server, no account, no API keys. Open `index.html` locally, or host the folder on GitHub Pages (Settings → Pages → Deploy from branch `main`, folder `/`).
 
