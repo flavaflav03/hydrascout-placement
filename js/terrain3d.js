@@ -11,7 +11,9 @@ const IGN_DEM = [
   { layer: "IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93", label: "IGN LiDAR HD terrain model", res: 1 },
   { layer: "ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES", label: "IGN RGE ALTI terrain model", res: 1 },
 ];
-const THREE_URL = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
+// Same release as before (r128), from npm via jsDelivr, checked against its integrity hash.
+const THREE_URL = "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js";
+const THREE_SRI = "sha512-dLxUelApnYxpLt6K2iomGngnHO83iUvZytA3YjDUCjT0HDOHKXnVYdf3hU4JjM8uEhxf9nD1/ey98U3t2vZ0qQ==";
 const ESRI_IMG = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile";
 
 // ---------- map layer ----------
@@ -152,8 +154,8 @@ function ringRelief(T, rings) {
 const demLabel = (dem) => `${dem.source}, ${dem.res < 2 ? "about 1 m" : `about ${Math.round(dem.res)} m`} per point`;
 
 // ---------- 3D view ----------
-function loadScript(src) {
-  return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error("could not load the 3D engine")); document.head.appendChild(s); });
+function loadScript(src, integrity) {
+  return new Promise((res, rej) => { const s = document.createElement("script"); if (integrity) { s.integrity = integrity; s.crossOrigin = "anonymous"; } s.src = src; s.onload = res; s.onerror = () => rej(new Error("could not load the 3D engine")); document.head.appendChild(s); });
 }
 
 const View3D = {
@@ -167,7 +169,7 @@ const View3D = {
     const tok = ++this.token;
     this.say("Loading the terrain…");
     try {
-      if (!window.THREE) await (this.engine = this.engine || loadScript(THREE_URL).catch((err) => { this.engine = null; throw err; }));
+      if (!window.THREE) await (this.engine = this.engine || loadScript(THREE_URL, THREE_SRI).catch((err) => { this.engine = null; throw err; }));
       const T = await demForPoints(opts.rings.flatMap((r) => r.ring));
       if (tok !== this.token) return;
       this.say("Loading the satellite image…");

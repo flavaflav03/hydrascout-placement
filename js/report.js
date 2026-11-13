@@ -34,8 +34,11 @@ function exportGpx(R, ctx) {
   download(`${fileBase(ctx)}.gpx`, "application/gpx+xml", `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="HydraScout Placement" xmlns="http://www.topografix.com/GPX/1/1">\n${w}\n  <trk><name>${escapeHtml(ctx.fieldName || "Field boundary")}</name><trkseg>\n${trk}\n  </trkseg></trk>\n</gpx>\n`);
 }
 
+// One quoted CSV cell. A text starting with = + - @ (or a tab/CR) would run as a formula when the file is opened in
+// Excel or Sheets; names come from customers' files, so such cells get a leading apostrophe.
+const csvCell = (v) => { let t = String(v == null ? "" : v); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return `"${t.replace(/"/g, '""')}"`; };
 function exportCsv(R, ctx) {
-  const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
+  const q = csvCell;
   const rows = [["name", "lat", "lon", "zone", "zone_share_pct", "elevation_m", "slope_pct", "clay_pct", "sand_pct", "ndvi", "dist_to_edge_m", "pivot_dist_m", "moved_by_hand", "optional", "why", "install_tip", "placed_here_because"]];
   R.sensors.forEach((s) => rows.push([s.name, s.lat.toFixed(7), s.lon.toFixed(7), q(zoneOf(s)), fmt(s.share * 100, 0), fmt(R.T.elev[s.i], 1), fmt(R.T.slope[s.i], 2),
     R.soil ? fmt(R.soil.clay[s.i], 1) : "", R.soil ? fmt(R.soil.sand[s.i], 1) : "", R.ndvi ? fmt(R.ndvi[s.i], 3) : "", fmt(s.edge, 0),
@@ -124,7 +127,7 @@ h3{font-size:14px;margin:14px 0 4px}
 <header><div class="brand">${typeof BRAND !== "undefined" ? BRAND.logoBaseline : ""}</div><h1>${escapeHtml(title)}</h1><p class="sub">HydraScout soil moisture &amp; temperature probes · generated ${new Date().toLocaleDateString()}</p>
 ${C ? `<p class="headline">${C.probes.length} installed probe${C.probes.length > 1 ? "s" : ""}: ${C.counts.map((k, v) => k && `${k} ${["well placed", "worth a look", "should move"][v]}`).filter(Boolean).join(", ")}${C.missing.length ? `; ${C.missing.length} ${R.blocks ? "block" : "zone"}${C.missing.length > 1 ? "s" : ""} without a probe` : ""}.</p>` : ""}
 ${X && !C ? roiSummaryHtml(X, X.probes || R.sensors.length).replace('class="roi-headline"', 'class="headline"') : ""}
-<p><button onclick="window.print()">Print or save as PDF</button></p></header>
+<p><button id="printBtn" onclick="window.print()">Print or save as PDF</button></p></header>
 <h2>Field and data used</h2><dl>${dataRows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
 <h2>Plan</h2>${fieldSvg(R, ctx)}
 ${C ? `<p class="notes">◆ installed probes (green: good spot, amber: worth a look, red: should move); ○ recommended spots; dashed line: suggested move.</p>` : ""}<div class="legend">${R.blocks ? R.blocks.map((b, bi) => `<span><b style="color:${zoneColor(bi)}">■</b> Block ${escapeHtml(b.name)} · ${fmt(b.ha, 1)} ha · ${R.sensors.filter((s) => s.zone === bi).map((s) => s.name + optTag(s)).join(", ") || "no probe"}</span>`).join("")
@@ -179,7 +182,13 @@ async function openReport(R, ctx) {
   if (w) w.document.write('<!doctype html><meta charset="utf-8"><title>Preparing the report…</title><p style="font:16px system-ui;padding:24px;color:#5a6f86">Preparing the report and its 3D view of the blocks…</p>');
   if (ctx.snapshot) ctx.picture = await Promise.race([ctx.snapshot(), sleep(25000).then(() => null)]).catch(() => null);
   const html = reportHtml(R, ctx), url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
-  if (w && !w.closed) w.location.href = url; else download(`${fileBase(ctx)}-report.html`, "text/html", html);
+  if (w && !w.closed) {
+    w.location.href = url;
+    // The report tab shares this page's Content-Security-Policy, which blocks the button's inline onclick (it still
+    // works in the downloaded file): wire it from here once the report has loaded.
+    const wire = () => { try { const b = w.document.getElementById("printBtn"); if (b) { b.removeAttribute("onclick"); b.onclick = () => w.print(); return true; } } catch (e) {} return false; };
+    const t0 = Date.now(), iv = setInterval(() => { if (w.closed || wire() || Date.now() - t0 > 20000) clearInterval(iv); }, 200);
+  } else download(`${fileBase(ctx)}-report.html`, "text/html", html);
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
@@ -187,7 +196,7 @@ function checkRows(R, C) {
   return C.probes.map((a) => `<tr><td>${escapeHtml(a.name)}</td><td>${a.lat.toFixed(6)}</td><td>${a.lon.toFixed(6)}</td><td>${a.inside ? escapeHtml(R.blocks ? R.blocks[a.zone].name : String(a.zone + 1)) : "outside"}</td><td>${a.edge != null ? `${fmt(a.edge, 0)} m` : "–"}</td><td>${a.verdict}</td><td>${escapeHtml(a.suggest || "")}</td></tr>`).join("");
 }
 function exportCheckCsv(R, ctx) {
-  const q = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`, C = ctx.check;
+  const q = csvCell, C = ctx.check;
   const rows = [["name", "serial", "lat", "lon", "block_or_zone", "dist_to_border_m", "verdict", "suggested_spot", "suggested_lat", "suggested_lon", "move_m", "direction", "findings", "suggestion"]];
   C.probes.forEach((a) => { const t = a.ref && a.ref.s; rows.push([q(a.name), q(a.serial || ""), a.lat.toFixed(7), a.lon.toFixed(7), q(a.inside ? (R.blocks ? R.blocks[a.zone].name : a.zone + 1) : "outside"), a.edge != null ? fmt(a.edge, 0) : "", q(a.verdict),
     t ? t.name : "", t ? t.lat.toFixed(7) : "", t ? t.lon.toFixed(7) : "", a.move != null ? fmt(a.move, 0) : "", a.dir || "", q(a.lines.join(" ")), q(a.suggest || "")]); });
